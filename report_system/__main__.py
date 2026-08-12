@@ -3,6 +3,7 @@
 사용법:
   python -m report_system generate                      # 샘플 데이터 진단리포트 (out/)
   python -m report_system live --config <site.json>     # 실데이터 진단리포트 (E01·E02)
+  python -m report_system doctor --config <site.json>   # 실행 전 설정·연결 진단
   python -m report_system coverage                      # 예측 이력 장부 적중률 조회
 
 실데이터 실행 전제: 환경변수 DATA_GO_KR_API_KEY (공공데이터포털 인증키).
@@ -100,6 +101,44 @@ def cmd_backtest() -> int:
     return 0
 
 
+def cmd_doctor(config: str, skip_api: bool) -> int:
+    """실행 전 설정·연결·데이터 가용성 진단."""
+    import json
+
+    from .doctor import (check_apis, check_config, match_comparables,
+                         summarize)
+
+    cfg = json.loads(pathlib.Path(config).read_text(encoding="utf-8"))
+    checks = check_config(cfg)
+    print("[1] 설정 검사")
+    for c in checks:
+        print(c.line())
+
+    names: list[str] = []
+    if not skip_api:
+        print("\n[2] API 연결 검사")
+        api_checks, names = check_apis(cfg)
+        for c in api_checks:
+            print(c.line())
+        checks += api_checks
+
+        print("\n[3] 비교단지 매칭")
+        m = match_comparables(cfg, names)
+        for c in m:
+            print(c.line())
+        checks += m
+        if names:
+            OUT.mkdir(exist_ok=True)
+            (OUT / "apt_names.txt").write_text("\n".join(names), encoding="utf-8")
+            print(f"     · 지역 단지명 {len(names)}개 저장: {OUT / 'apt_names.txt'}")
+
+    ok, warn, fail = summarize(checks)
+    print(f"\n결과: OK {ok} · 주의 {warn} · 실패 {fail}")
+    if fail:
+        print("실패 항목을 해결한 뒤 live 를 실행하십시오.")
+    return 1 if fail else 0
+
+
 def cmd_live(config: str, asof: str | None, offline: bool) -> int:
     from .live import run_live
     OUT.mkdir(exist_ok=True)
@@ -128,6 +167,9 @@ def main() -> int:
     sub.add_parser("generate")
     sub.add_parser("coverage")
     sub.add_parser("backtest")
+    dc = sub.add_parser("doctor")
+    dc.add_argument("--config", required=True, help="현장 설정 JSON 경로")
+    dc.add_argument("--skip-api", action="store_true", help="설정 검사만 수행")
     lv = sub.add_parser("live")
     lv.add_argument("--config", required=True, help="현장 설정 JSON 경로")
     lv.add_argument("--asof", help="분석 기준일 YYYY-MM-DD (기본: 설정값)")
@@ -140,6 +182,8 @@ def main() -> int:
         return cmd_coverage()
     if args.command == "backtest":
         return cmd_backtest()
+    if args.command == "doctor":
+        return cmd_doctor(args.config, args.skip_api)
     return cmd_live(args.config, args.asof, args.offline)
 
 

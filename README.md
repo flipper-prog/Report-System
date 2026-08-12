@@ -13,13 +13,14 @@ python3 -m report_system generate                  # → out/sample_report.md
 # 2) 실데이터 — 공공데이터포털 인증키 필요
 export DATA_GO_KR_API_KEY='발급받은_Decoding_키'
 cp examples/site_config.json my_site.json          # 현장·비교단지 정보 입력
+python3 -m report_system doctor --config my_site.json        # ★ 먼저 진단
 python3 -m report_system live --config my_site.json          # → out/live_report.md
 python3 -m report_system live --config my_site.json --offline # 캐시만 사용(재현 실행)
 
 # 3) 검증
 python3 -m report_system coverage   # 예측 이력 장부 적중률
 python3 -m report_system backtest   # 백테스트 단독 실행 → out/backtest.md
-python3 tests/run_all.py            # 전체 테스트 (61건)
+python3 tests/run_all.py            # 전체 테스트 (77건)
 ```
 
 ### 실데이터 준비 절차
@@ -33,6 +34,19 @@ python3 tests/run_all.py            # 전체 테스트 (61건)
    - `comparables[].apt_nm`: **국토부 실거래 데이터의 단지명과 정확히 일치**해야 함.
      불일치 시 CLI가 해당 지역의 실제 단지명 목록을 오류 메시지로 안내한다.
    - `site.types[].base_price`: 분양가(원), `option_cost`: 유상옵션·확장비
+
+### doctor — 실행 전 진단 (키 수령 직후 첫 명령)
+
+`live` 실행 전에 설정·연결·데이터 가용성을 점검한다. API 호출은 엔드포인트당 1회.
+
+```
+[1] 설정 검사     필수 키·타입, 세대수 정합, 분양가 단위, 법정동 코드 5자리
+[2] API 연결      인증키 인식, E01/E02 실제 응답 건수
+[3] 비교단지 매칭  설정의 apt_nm 이 실데이터에 존재하는지 + 유사 후보 제안
+                  → 지역 단지명 전체를 out/apt_names.txt 로 저장
+```
+
+`--skip-api` 로 설정 검사만 수행할 수 있다. 실패 항목이 있으면 종료코드 1.
 
 ### 커넥터 동작
 
@@ -90,7 +104,7 @@ python3 tests/run_all.py            # 전체 테스트 (61건)
 report_system/             파이프라인 패키지 (stdlib only)
   connectors/              실데이터 커넥터 (molit=E01, applyhome=E02, base=캐시·이력)
   live.py                  설정 JSON + 커넥터 → 리포트
-tests/                     unittest 스위트 (65건) — run_all.py 로 일괄 실행
+tests/                     unittest 스위트 (77건) — run_all.py 로 일괄 실행
 examples/site_config.json  실데이터 실행 설정 예시
 proposal/                  사업 제안서 (md + docx 납품본 + 변환 스크립트)
 docs/                      설계검토보고서 (P0/P1/P2 진단)

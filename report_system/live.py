@@ -39,7 +39,8 @@ def _site_from(cfg: dict) -> Site:
         ) for t in s["types"]],
         expected_movein=date.fromisoformat(s["expected_movein"]) if s.get("expected_movein") else None,
         region=s.get("region", ""),
-        brand_tier=int(s.get("brand_tier", 2)))
+        brand_tier=int(s.get("brand_tier", 2)),
+        product_type=s.get("product_type", "아파트"))
 
 
 def _supply_from(cfg: dict) -> list[SupplyItem]:
