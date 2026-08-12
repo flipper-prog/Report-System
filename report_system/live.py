@@ -12,6 +12,7 @@ from datetime import date, timedelta
 
 from .connectors.applyhome import fetch_subscription_history
 from .connectors.base import Fetcher, api_key
+from .connectors.listings import ListingsFormatError, load as load_listings
 from .connectors.molit import (build_comparables, fetch_range,
                                to_transactions)
 from .ledger import ForecastLedger
@@ -121,8 +122,25 @@ def run_live(config_path: str, asof: date | None = None,
         since=asof - timedelta(days=int(cfg.get("subscription_lookback_days", 900))),
         until=asof)
 
-    # 조기경보 스냅숏: 라이브 v0.1은 매물 데이터 커넥터 미구현 → 중립 스냅숏
+    # 매물·호가 선행 신호 (P1-2). 설정에 파일이 지정된 경우에만 활성화된다.
     neutral = ListingSnapshot(asof, 0, 1.0, 1.0)
+    listings_pair = (neutral, neutral)
+    listings_note = "매물 파일 미지정 — 시장 선행 신호 비활성"
+    lf = cfg.get("listings_file")
+    if lf:
+        try:
+            lr = load_listings(lf, until=asof)
+            pair = lr.latest_pair
+            if pair:
+                listings_pair = pair
+                listings_note = (f"{lr.source} — 관측 {len(lr.snapshots)}건, "
+                                 f"최신 {lr.snapshots[-1].asof}")
+            else:
+                listings_note = f"{lr.source} — 관측 {len(lr.snapshots)}건(2건 미만, 비교 불가)"
+            if lr.skipped:
+                listings_note += f" · 제외 {len(lr.skipped)}행"
+        except ListingsFormatError as e:
+            listings_note = f"매물 파일 오류 — {e}" 
 
     result = run(
         site=_site_from(cfg),
@@ -132,10 +150,11 @@ def run_live(config_path: str, asof: date | None = None,
         supply_items=_supply_from(cfg),
         catalyst_plans_old=_catalysts_from(cfg),
         catalyst_plans_new=_catalysts_from(cfg),
-        dataset_meta=_dataset_meta(sub_hist_n=len(sub_hist), tx_n=len(txs)),
+        dataset_meta=_dataset_meta(sub_hist_n=len(sub_hist), tx_n=len(txs),
+                                   listings_note=listings_note),
         incomes=_incomes_from(cfg),
         feedback=_feedback_from(cfg),
-        listings=(neutral, neutral),
+        listings=listings_pair,
         asof=asof,
         ledger=ForecastLedger(ledger_path),
         store=RunStore(store_path))
@@ -146,7 +165,8 @@ def run_live(config_path: str, asof: date | None = None,
     return result
 
 
-def _dataset_meta(sub_hist_n: int, tx_n: int) -> list[DatasetMeta]:
+def _dataset_meta(sub_hist_n: int, tx_n: int,
+                  listings_note: str = "") -> list[DatasetMeta]:
     """수집 결과 기반의 적합성 평가(라이브 기본값)."""
     return [
         DatasetMeta("L11 실거래 (국토부 E01)", 24, 24, 18, 15, 15,
@@ -155,6 +175,7 @@ def _dataset_meta(sub_hist_n: int, tx_n: int) -> list[DatasetMeta]:
                     note=f"수집 {sub_hist_n}건 — 가격 갭·동시 공급 미제공(지역·기간 매칭)"),
         DatasetMeta("L5 소득·구매력 (로그정규 근사)", 12, 14, 10, 8, 15,
                     note="공공 대체 근사 — 제한 사용 [LIMITATION]"),
-        DatasetMeta("매물·호가 (미수집)", 0, 0, 0, 0, 0,
-                    note="커넥터 미구현 — 조기경보 시장 신호 비활성"),
+        (DatasetMeta("매물·호가 (파일 수집)", 18, 20, 12, 12, 15, note=listings_note)
+         if listings_note.startswith("매물·호가 파일")
+         else DatasetMeta("매물·호가 (미수집)", 0, 0, 0, 0, 0, note=listings_note)),
     ]
