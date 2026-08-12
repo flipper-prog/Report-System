@@ -21,7 +21,7 @@ python3 -m report_system live --config my_site.json --offline # 캐시만 사용
 python3 -m report_system coverage   # 예측 이력 장부 적중률
 python3 -m report_system backtest   # 백테스트 단독 실행 → out/backtest.md
 python3 -m report_system history --site SAMPLE-001   # 회차별 판정·지표 변화
-python3 tests/run_all.py            # 전체 테스트 (89건)
+python3 tests/run_all.py            # 전체 테스트 (101건)
 ```
 
 ### 실데이터 준비 절차
@@ -80,6 +80,7 @@ python3 tests/run_all.py            # 전체 테스트 (89건)
   ├→ supply      확률조정 공급(단계별 실현 가능성 가중)
   ├→ catalyst    성숙도 엔진(검토/추진/확정 단계 → 광고 취급 등급, 촉매카드)
   ├→ alerts      조기경보(개발계획·시장·공급 신호 스냅숏 비교)
+  ├→ competitor  경쟁 현장 모니터링(가격·혜택·잔여 변동, 수집 신선도 경고)
   ├→ feedback    현장 반응 정합성(거절 사유 vs 4개 판정, 재검토 플래그)
   → verdicts     4개 독립 판정(가격·수요·공급/환금성·촉매) × 4속성 — 단일 점수 합산 없음
   → claims       표현 5등급 + 광고 3등급 + 린트 게이트(금지 표현·무근거 차단)
@@ -107,7 +108,7 @@ python3 tests/run_all.py            # 전체 테스트 (89건)
 report_system/             파이프라인 패키지 (stdlib only)
   connectors/              실데이터 커넥터 (molit=E01, applyhome=E02, base=캐시·이력)
   live.py                  설정 JSON + 커넥터 → 리포트
-tests/                     unittest 스위트 (89건) — run_all.py 로 일괄 실행
+tests/                     unittest 스위트 (101건) — run_all.py 로 일괄 실행
 examples/site_config.json  실데이터 실행 설정 예시
 proposal/                  사업 제안서 (md + docx 납품본 + 변환 스크립트)
 docs/                      설계검토보고서 (P0/P1/P2 진단)
@@ -123,7 +124,7 @@ out/                       생성 산출물·캐시·장부 (git 미추적)
 | 소득·구매력 (L5) | 공공 대체 로그정규 근사 — 설정의 분포 파라미터 기반, LIMITATION 표기 |
 | 조정계수 | 연식·층·단계 실현률·DSR 가정은 파라미터 노출. **실데이터 백테스트로 교정 전까지 예시값** |
 | 드리프트·상품 프로파일·커버리지표 | **구현 완료** (P2-1·P2-2·P2-4) |
-| P2 잔여 | 경쟁 현장 자동 모니터링(P2-6), 정제 룰 외부 버전 관리(P2-3) |
+| 경쟁 현장 모니터링·정제 룰 버전화 | **구현 완료** (P2-6·P2-3) |
 
 실데이터 실행 시 조정계수가 미교정 상태라는 점은 리포트의 가정·한계 절에 표기되며,
 예측 이력 장부(`coverage`)에 실적이 누적되면 적중률 기준으로 재보정한다.

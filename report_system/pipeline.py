@@ -10,6 +10,7 @@ from .alerts import Alert, scan_catalyst, scan_market
 from .backtest import (BacktestReport, backtest_price_bands,
                        backtest_subscription, quarterly_cutoffs)
 from .catalyst import assess
+from .competitor import CompetitorSnapshot, scan as scan_competitors
 from .coverage_table import build as build_coverage
 from .modelcard import (detect_drift, price_band_card, scenario_card,
                         subscription_card)
@@ -61,6 +62,8 @@ def run(
     asof: date,
     ledger: ForecastLedger,
     store: "RunStore | None" = None,
+    competitors_old: "list[CompetitorSnapshot] | None" = None,
+    competitors_new: "list[CompetitorSnapshot] | None" = None,
 ) -> PipelineResult:
     # 1) 입력 검증 — 치명 결함 시 중단
     issues = validate_site(site, asof) + validate_transactions(txs, asof)
@@ -154,6 +157,8 @@ def run(
         if p.id in old_by_id:
             alerts += scan_catalyst(old_by_id[p.id], p)
     alerts += scan_market(*listings)
+    if competitors_new:
+        alerts += scan_competitors(competitors_old or [], competitors_new, asof)
 
     # 8) 판정 4종
     v1 = price_verdict(positions)

@@ -9,6 +9,13 @@ from statistics import median
 
 from .models import Transaction
 
+# 정제 룰 버전 — 룰 변경 시 반드시 증가시키고 리포트·백테스트 결과에 표기한다.
+# (동일 버전이면 동일 입력에 동일 정제 결과가 보장된다)
+RULES_VERSION = "clean-1.0"
+RULES_SUMMARY = (
+    "취소거래 제거 · 완전중복 제거 · 단지×면적버킷 MAD z>3.5 이상치 제거 · "
+    "그룹 중위 대비 60% 미만 저가 특수거래 의심 제외")
+
 MAD_Z_THRESHOLD = 3.5      # 로버스트 이상치 기준
 SPECIAL_LOW_RATIO = 0.6    # 그룹 중위가 대비 이 비율 미만이면 특수거래 의심
 AREA_BUCKET_M2 = 10.0      # 면적 버킷 폭
@@ -18,6 +25,7 @@ AREA_BUCKET_M2 = 10.0      # 면적 버킷 폭
 class CleanResult:
     kept: list[Transaction]
     removed: dict[str, list[Transaction]] = field(default_factory=dict)
+    rules_version: str = RULES_VERSION
 
     @property
     def summary(self) -> dict[str, int]:

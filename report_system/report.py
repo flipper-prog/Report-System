@@ -121,6 +121,9 @@ def generate_markdown(x: ReportInputs) -> str:
     # 3. 거래 정제
     add("## 3. 거래 데이터 정제 내역")
     add("")
+    from .transactions import RULES_SUMMARY
+    add(f"*정제 룰 버전 `{x.clean.rules_version}` — {RULES_SUMMARY}*")
+    add("")
     add("| 구분 | 건수 |")
     add("|------|------|")
     for k, v in x.clean.summary.items():
