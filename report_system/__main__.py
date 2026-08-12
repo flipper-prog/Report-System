@@ -18,6 +18,7 @@ from . import sample_data as sd
 from .connectors.base import MissingApiKeyError
 from .ledger import ForecastLedger
 from .pipeline import run
+from .render_html import markdown_to_html
 
 OUT = pathlib.Path("out")
 
@@ -48,7 +49,10 @@ def cmd_generate() -> int:
     )
     path = OUT / "sample_report.md"
     path.write_text(result.markdown, encoding="utf-8")
-    print(f"리포트 생성: {path}")
+    html_path = OUT / "sample_report.html"
+    html_path.write_text(
+        markdown_to_html(result.markdown, result.inputs.site.name), encoding="utf-8")
+    print(f"리포트 생성: {path} / {html_path}")
     if result.forecast_id:
         print(f"청약 전망 봉인: {result.forecast_id} "
               f"(무결성 {'OK' if ledger.verify_seal(result.forecast_id) else 'FAIL'})")
@@ -108,7 +112,10 @@ def cmd_live(config: str, asof: str | None, offline: bool) -> int:
         return 2
     path = OUT / "live_report.md"
     path.write_text(result.markdown, encoding="utf-8")
-    print(f"리포트 생성: {path}")
+    html_path = OUT / "live_report.html"
+    html_path.write_text(
+        markdown_to_html(result.markdown, result.inputs.site.name), encoding="utf-8")
+    print(f"리포트 생성: {path} / {html_path}")
     print("수집 이력: out/provenance.json")
     if result.forecast_id:
         print(f"청약 전망 봉인: {result.forecast_id}")

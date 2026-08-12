@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from statistics import mean
 
 from .affordability import AffordabilityResult
+from .liquidity import LiquidityResult
 from .pricing import MarketPosition
 from .subscription import SubscriptionForecast
 from .supply import SupplyAssessment
@@ -70,7 +71,8 @@ def demand_verdict(afford: list[AffordabilityResult],
     return Verdict("② 수요 지속성", direction, "중", confidence, "최초", rationale)
 
 
-def supply_verdict(sa: SupplyAssessment, site_units: int, turnover_note: str = "") -> Verdict:
+def supply_verdict(sa: SupplyAssessment, site_units: int,
+                   liq: "LiquidityResult | None" = None) -> Verdict:
     ratio = sa.adjusted_units / site_units if site_units else 0
     if ratio >= 8:
         direction, strength = "부정", "강"
@@ -80,12 +82,24 @@ def supply_verdict(sa: SupplyAssessment, site_units: int, turnover_note: str = "
         direction, strength = "중립", "중"
     else:
         direction, strength = "긍정", "중"
+
     rationale = [
         f"{sa.window_months}개월 내 확률조정 공급 {sa.adjusted_units:,.0f}세대 "
         f"(발표 물량 {sa.nominal_units:,}세대) — 현장 세대수 대비 {ratio:.1f}배"]
-    if turnover_note:
-        rationale.append(turnover_note)
-    return Verdict("③ 공급·환금성 위험", direction, strength, "보통", "최초", rationale)
+
+    confidence = "보통"
+    if liq is not None:
+        rationale.append(liq.as_rationale())
+        # 환금성 취약이 확인되면 위험 판정을 한 단계 강화한다
+        if liq.turnover_pct_year is not None:
+            if liq.label == "환금성 취약" and direction != "부정":
+                direction, strength = "부정", "중"
+                rationale.append("→ 공급 부담은 낮으나 환금성 취약으로 위험 판정 상향")
+            confidence = "보통" if liq.n_trades >= 30 else "낮음"
+        else:
+            confidence = "낮음"
+
+    return Verdict("③ 공급·환금성 위험", direction, strength, confidence, "최초", rationale)
 
 
 def catalyst_verdict(cards: list[CatalystCard]) -> Verdict:

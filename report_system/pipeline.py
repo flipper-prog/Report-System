@@ -16,6 +16,7 @@ from .modelcard import (detect_drift, price_band_card, scenario_card,
 from .claims import lint
 from .feedback import check as feedback_check
 from .ledger import ForecastLedger
+from .liquidity import analyze as analyze_liquidity
 from .models import (AdGrade, CatalystPlan, Claim, ClaimGrade, Comparable,
                      DatasetMeta, FieldFeedback, ListingSnapshot, Site,
                      SubscriptionRecord, SupplyItem, Transaction,
@@ -146,7 +147,8 @@ def run(
     # 8) 판정 4종
     v1 = price_verdict(positions)
     v2 = demand_verdict(afford, sub_fc)
-    v3 = supply_verdict(sa, site.total_units)
+    liq = analyze_liquidity(cr.kept, comps, asof)
+    v3 = supply_verdict(sa, site.total_units, liq)
     v4 = catalyst_verdict(cards)
     verdicts = [v1, v2, v3, v4]
 

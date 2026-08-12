@@ -18,7 +18,8 @@ python3 -m report_system live --config my_site.json --offline # 캐시만 사용
 
 # 3) 검증
 python3 -m report_system coverage   # 예측 이력 장부 적중률
-python3 tests/run_all.py            # 전체 테스트 (32건)
+python3 -m report_system backtest   # 백테스트 단독 실행 → out/backtest.md
+python3 tests/run_all.py            # 전체 테스트 (61건)
 ```
 
 ### 실데이터 준비 절차
@@ -58,13 +59,16 @@ python3 tests/run_all.py            # 전체 테스트 (32건)
   ├→ affordability 실부담 시뮬레이터(LTV·DSR·금리 시나리오, 구매 가능 가구 비율)
   ├→ subscription 청약경쟁률 구간 예측(유사 사례 경험분포, 표본 미달 시 정성 전환)
   │    └→ ledger  예측 이력 장부: 봉인(불변 트리거)·실적 대조·적중률(coverage)
+  ├→ timeseries  월별 추세·국면 전환 감지 → scenarios 하방/기준/상방 + 민감도
+  ├→ backtest    시점 분리 검증(운영과 동일 함수) → 적중률 → modelcard 드리프트
+  ├→ liquidity   환금성(회전율·가격분산·거래간격) → 판정 ③ 강화
   ├→ supply      확률조정 공급(단계별 실현 가능성 가중)
   ├→ catalyst    성숙도 엔진(검토/추진/확정 단계 → 광고 취급 등급, 촉매카드)
   ├→ alerts      조기경보(개발계획·시장·공급 신호 스냅숏 비교)
   ├→ feedback    현장 반응 정합성(거절 사유 vs 4개 판정, 재검토 플래그)
   → verdicts     4개 독립 판정(가격·수요·공급/환금성·촉매) × 4속성 — 단일 점수 합산 없음
   → claims       표현 5등급 + 광고 3등급 + 린트 게이트(금지 표현·무근거 차단)
-  → report       진단리포트(markdown) 조립
+  → report       진단리포트 조립 → render_html 배포용 단일 HTML
 ```
 
 ## 설계 원칙 (제안서와의 대응)
