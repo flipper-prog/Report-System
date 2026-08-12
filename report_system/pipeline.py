@@ -24,6 +24,7 @@ from .models import (AdGrade, CatalystPlan, Claim, ClaimGrade, Comparable,
 from .pricing import market_positions, quality_adjusted_bands
 from .profiles import applicability_note, get as get_profile
 from .report import ReportInputs, generate_markdown
+from .runstore import RunSnapshot, RunStore, describe_change
 from .scenarios import build as build_scenarios
 from .subscription import SubscriptionForecast, predict
 from .supply import probability_adjusted
@@ -59,6 +60,7 @@ def run(
     listings: tuple[ListingSnapshot, ListingSnapshot],
     asof: date,
     ledger: ForecastLedger,
+    store: "RunStore | None" = None,
 ) -> PipelineResult:
     # 1) 입력 검증 — 치명 결함 시 중단
     issues = validate_site(site, asof) + validate_transactions(txs, asof)
@@ -160,6 +162,25 @@ def run(
     v3 = supply_verdict(sa, site.total_units, liq)
     v4 = catalyst_verdict(cards)
     verdicts = [v1, v2, v3, v4]
+
+    # 8-2) 직전 회차 대비 '변화' 속성 산출 후 이번 회차 저장 (5.4.5)
+    cur_metrics = {
+        "anchor_ppsm": anchor,
+        "supply_ratio": (sa.adjusted_units / site.total_units) if site.total_units else 0.0,
+        "sub_mid": sub_fc.mid if sub_fc.ok else 0.0,
+        "turnover": liq.turnover_pct_year or 0.0,
+    }
+    if store is not None:
+        prev = store.latest(site.id, str(asof))
+        for v in verdicts:
+            cur = {"direction": v.direction, "strength": v.strength,
+                   "confidence": v.confidence}
+            v.change = describe_change(v.name, cur, prev, cur_metrics)
+        store.save(RunSnapshot(
+            site_id=site.id, asof=str(asof),
+            verdicts={v.name: {"direction": v.direction, "strength": v.strength,
+                               "confidence": v.confidence} for v in verdicts},
+            metrics=cur_metrics))
 
     # 9) 현장 반응 정합성 (P1-3)
     flags = feedback_check(

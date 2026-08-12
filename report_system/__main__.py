@@ -18,6 +18,7 @@ from datetime import date
 from . import sample_data as sd
 from .connectors.base import MissingApiKeyError
 from .ledger import ForecastLedger
+from .runstore import RunStore
 from .pipeline import run
 from .render_html import markdown_to_html
 
@@ -47,6 +48,7 @@ def cmd_generate() -> int:
         listings=sd.build_listing_snapshots(),
         asof=sd.ASOF,
         ledger=ledger,
+        store=RunStore(str(OUT / 'runs.db')),
     )
     path = OUT / "sample_report.md"
     path.write_text(result.markdown, encoding="utf-8")
@@ -98,6 +100,24 @@ def cmd_backtest() -> int:
             lines += [d.as_markdown(), ""]
     (OUT / "backtest.md").write_text("\n".join(lines), encoding="utf-8")
     print(f"저장: {OUT / 'backtest.md'}")
+    return 0
+
+
+def cmd_history(site_id: str) -> int:
+    """회차별 판정·지표 변화 이력 조회."""
+    from .runstore import RunStore
+    store = RunStore(str(OUT / "runs.db"))
+    runs = store.history(site_id)
+    if not runs:
+        print(f"이력 없음: {site_id}")
+        return 1
+    print(f"[{site_id}] 실행 이력 {len(runs)}회")
+    for r in runs:
+        m = r.metrics
+        print(f"\n  {r.asof}  앵커 {m.get('anchor_ppsm',0)/1e4:,.0f}만원/㎡ · "
+              f"공급배수 {m.get('supply_ratio',0):.1f} · 회전율 {m.get('turnover',0):.1f}%")
+        for name, v in r.verdicts.items():
+            print(f"    {name}: {v['direction']}/{v['strength']} (신뢰도 {v['confidence']})")
     return 0
 
 
@@ -167,6 +187,8 @@ def main() -> int:
     sub.add_parser("generate")
     sub.add_parser("coverage")
     sub.add_parser("backtest")
+    hs = sub.add_parser("history")
+    hs.add_argument("--site", required=True, help="현장 ID")
     dc = sub.add_parser("doctor")
     dc.add_argument("--config", required=True, help="현장 설정 JSON 경로")
     dc.add_argument("--skip-api", action="store_true", help="설정 검사만 수행")
@@ -184,6 +206,8 @@ def main() -> int:
         return cmd_backtest()
     if args.command == "doctor":
         return cmd_doctor(args.config, args.skip_api)
+    if args.command == "history":
+        return cmd_history(args.site)
     return cmd_live(args.config, args.asof, args.offline)
 
 

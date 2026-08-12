@@ -20,7 +20,8 @@ python3 -m report_system live --config my_site.json --offline # 캐시만 사용
 # 3) 검증
 python3 -m report_system coverage   # 예측 이력 장부 적중률
 python3 -m report_system backtest   # 백테스트 단독 실행 → out/backtest.md
-python3 tests/run_all.py            # 전체 테스트 (77건)
+python3 -m report_system history --site SAMPLE-001   # 회차별 판정·지표 변화
+python3 tests/run_all.py            # 전체 테스트 (89건)
 ```
 
 ### 실데이터 준비 절차
@@ -82,6 +83,7 @@ python3 tests/run_all.py            # 전체 테스트 (77건)
   ├→ feedback    현장 반응 정합성(거절 사유 vs 4개 판정, 재검토 플래그)
   → verdicts     4개 독립 판정(가격·수요·공급/환금성·촉매) × 4속성 — 단일 점수 합산 없음
   → claims       표현 5등급 + 광고 3등급 + 린트 게이트(금지 표현·무근거 차단)
+  → runstore     회차 저장·직전 대비 '변화' 산출 (판정 4속성 완성)
   → report       진단리포트 조립 → render_html 배포용 단일 HTML
 ```
 
@@ -97,6 +99,7 @@ python3 tests/run_all.py            # 전체 테스트 (77건)
 | 단일 AI 점수로 합치지 않는다 | 4개 독립 판정(`verdicts.py`) | 5.8 |
 | 예측은 사후 검증된다 | 시점 분리 백테스트(`backtest.py`) — 운영과 동일 함수 호출 | 5.4.2·E.2 |
 | 상품이 다르면 모델도 다르다 | 상품 프로파일(`profiles.py`) — 비교군·표본·청약 적용 분리 | P2-2 |
+| 판정은 직전 회차와 비교된다 | 실행 이력(`runstore.py`) — 판정별 관련 지표만 델타 표기 | 5.4.5 '변화' |
 
 ## 저장소 구성
 
@@ -104,7 +107,7 @@ python3 tests/run_all.py            # 전체 테스트 (77건)
 report_system/             파이프라인 패키지 (stdlib only)
   connectors/              실데이터 커넥터 (molit=E01, applyhome=E02, base=캐시·이력)
   live.py                  설정 JSON + 커넥터 → 리포트
-tests/                     unittest 스위트 (77건) — run_all.py 로 일괄 실행
+tests/                     unittest 스위트 (89건) — run_all.py 로 일괄 실행
 examples/site_config.json  실데이터 실행 설정 예시
 proposal/                  사업 제안서 (md + docx 납품본 + 변환 스크립트)
 docs/                      설계검토보고서 (P0/P1/P2 진단)

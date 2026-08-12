@@ -15,6 +15,7 @@ from .connectors.base import Fetcher, api_key
 from .connectors.molit import (build_comparables, fetch_range,
                                to_transactions)
 from .ledger import ForecastLedger
+from .runstore import RunStore
 from .models import (CatalystPlan, DatasetMeta, FieldFeedback,
                      ListingSnapshot, MaturityStage, Site, SupplyItem,
                      SupplyStage, Site as _Site, TypeSpec)
@@ -87,10 +88,16 @@ def _feedback_from(cfg: dict) -> FieldFeedback:
 
 def run_live(config_path: str, asof: date | None = None,
              cache_dir: str = "out/cache", offline: bool = False,
-             ledger_path: str = "out/forecast_ledger.db") -> PipelineResult:
+             ledger_path: str = "out/forecast_ledger.db",
+             store_path: str = "out/runs.db") -> PipelineResult:
     cfg = load_config(config_path)
     asof = asof or date.fromisoformat(cfg["asof"])
     key = api_key()
+    # 장부·이력 DB의 상위 디렉터리를 미리 생성 (sqlite는 자동 생성하지 않음)
+    for pth in (ledger_path, store_path):
+        parent = pathlib.Path(pth).parent
+        if str(parent) not in ("", "."):
+            parent.mkdir(parents=True, exist_ok=True)
     fetcher = Fetcher(cache_dir=cache_dir, offline=offline)
 
     # E01 실거래 수집 → 비교단지·거래 적재
@@ -130,7 +137,8 @@ def run_live(config_path: str, asof: date | None = None,
         feedback=_feedback_from(cfg),
         listings=(neutral, neutral),
         asof=asof,
-        ledger=ForecastLedger(ledger_path))
+        ledger=ForecastLedger(ledger_path),
+        store=RunStore(store_path))
 
     pathlib.Path("out").mkdir(exist_ok=True)
     pathlib.Path("out/provenance.json").write_text(
