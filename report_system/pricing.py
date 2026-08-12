@@ -69,6 +69,12 @@ def _adjust_ppsm(tx: Transaction, comp: Comparable, asof: date, subject_floors: 
     return ppsm
 
 
+def adjusted_ppsm(tx: Transaction, comp: Comparable, asof: date,
+                  subject_floors: tuple[int, int]) -> float:
+    """공개 래퍼 — 백테스트가 운영과 동일한 조정식을 사용하도록 노출."""
+    return _adjust_ppsm(tx, comp, asof, subject_floors)
+
+
 def _quantile3(vals: list[float]) -> tuple[float, float, float]:
     if len(vals) == 1:
         return vals[0], vals[0], vals[0]

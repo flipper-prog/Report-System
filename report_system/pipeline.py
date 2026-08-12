@@ -3,11 +3,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from statistics import median
+from statistics import median  # noqa: F401  (앵커·가격갭 계산에 사용)
 
 from .affordability import simulate
 from .alerts import Alert, scan_catalyst, scan_market
+from .backtest import (BacktestReport, backtest_price_bands,
+                       backtest_subscription, quarterly_cutoffs)
 from .catalyst import assess
+from .coverage_table import build as build_coverage
+from .modelcard import (detect_drift, price_band_card, scenario_card,
+                        subscription_card)
 from .claims import lint
 from .feedback import check as feedback_check
 from .ledger import ForecastLedger
@@ -17,8 +22,10 @@ from .models import (AdGrade, CatalystPlan, Claim, ClaimGrade, Comparable,
                      total_acquisition_cost)
 from .pricing import market_positions, quality_adjusted_bands
 from .report import ReportInputs, generate_markdown
+from .scenarios import build as build_scenarios
 from .subscription import predict
 from .supply import probability_adjusted
+from .timeseries import monthly_trend
 from .transactions import clean
 from .validation import has_fatal, validate_site, validate_transactions
 from .verdicts import (catalyst_verdict, demand_verdict, price_verdict,
@@ -87,6 +94,48 @@ def run(
 
     # 7) 촉매 + 조기경보
     cards = [assess(p) for p in catalyst_plans_new]
+
+    # 7-2) 시계열 추세 → 조건부 가격 시나리오 → 장부 봉인
+    trend = monthly_trend(cr.kept)
+    anchor = median([b.q50 for b in bands if b.level == "타입"]) if bands else 0.0
+    scen = None
+    scen_id = ""
+    if anchor > 0:
+        supply_ratio = sa.adjusted_units / site.total_units if site.total_units else 0.0
+        scen = build_scenarios(anchor, trend.slope_pct_per_year, supply_ratio, cards)
+        scen_id = ledger.seal(
+            kind="price", target=f"{site.id}:anchor",
+            lo=scen.low.price_ppsm, hi=scen.high.price_ppsm,
+            confidence=0.0,   # 시나리오 범위는 확률 구간이 아님(전제 기반) — E.2 적중률 산출 제외
+            model_version="scenario-driver-0.1", data_asof=str(asof),
+            payload={"anchor": anchor, "trend_pct_year": trend.slope_pct_per_year,
+                     "supply_ratio": round(supply_ratio, 2),
+                     "legs": [(l.name, l.annual_pct) for l in scen.legs]})
+
+    # 7-3) 백테스트 (운영과 동일 함수로 시점 분리 검증)
+    backtests: list[BacktestReport] = []
+    if cr.kept:
+        first = min(t.trade_date for t in cr.kept)
+        cuts = quarterly_cutoffs(first, asof)
+        if cuts:
+            backtests.append(backtest_price_bands(site, comps, cr.kept, cuts))
+    if sub_history:
+        backtests.append(backtest_subscription(sub_history))
+
+    # 7-4) 커버리지표 · 모델 카드 · 드리프트
+    cov_rows = build_coverage(
+        tx_count=len(cr.kept), sub_count=len(sub_history),
+        supply_items=len(supply_items), catalyst_items=len(catalyst_plans_new),
+        income_model=bool(incomes))
+    span = (f"{min(t.trade_date for t in cr.kept)} ~ {max(t.trade_date for t in cr.kept)}"
+            if cr.kept else "없음")
+    bt_price = next((b for b in backtests if b.name.startswith("가격")), None)
+    bt_sub = next((b for b in backtests if b.name.startswith("청약")), None)
+    cards_md = [price_band_card(len(cr.kept), span, bt_price),
+                subscription_card(sub_fc.n_cases, bt_sub)]
+    if scen:
+        cards_md.append(scenario_card(scen.horizon_months))
+    drifts = [detect_drift(b) for b in backtests if b.folds]
     alerts: list[Alert] = []
     old_by_id = {p.id: p for p in catalyst_plans_old}
     for p in catalyst_plans_new:
@@ -117,7 +166,9 @@ def run(
         bands=bands, positions=positions, afford=afford,
         sub_forecast=sub_fc, sub_forecast_id=fid, supply=sa,
         catalysts=cards, verdicts=verdicts, alerts=alerts,
-        feedback_flags=flags, lint=lint_res)
+        feedback_flags=flags, lint=lint_res,
+        trend=trend, scenarios=scen, scenario_id=scen_id, backtests=backtests,
+        coverage_rows=cov_rows, model_cards=cards_md, drifts=drifts)
     return PipelineResult(generate_markdown(inputs), inputs, fid)
 
 

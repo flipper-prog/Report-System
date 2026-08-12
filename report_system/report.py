@@ -12,14 +12,17 @@ from datetime import date
 from . import __version__
 from .affordability import AffordabilityResult
 from .alerts import Alert
+from .backtest import BacktestReport
 from .catalyst import CatalystCard
 from .claims import LintResult
 from .feedback import ConsistencyFlag
 from .models import DataGrade, DatasetMeta, Site
 from .pricing import Band, MarketPosition
 from .quality import grade, score
+from .scenarios import ScenarioSet
 from .subscription import SubscriptionForecast
 from .supply import SupplyAssessment
+from .timeseries import TrendResult
 from .transactions import CleanResult
 from .verdicts import Verdict
 
@@ -41,6 +44,18 @@ class ReportInputs:
     alerts: list[Alert]
     feedback_flags: list[ConsistencyFlag]
     lint: LintResult
+    trend: TrendResult | None = None
+    scenarios: ScenarioSet | None = None
+    scenario_id: str = ""
+    backtests: list[BacktestReport] = None  # type: ignore[assignment]
+    coverage_rows: list = None  # type: ignore[assignment]
+    model_cards: list = None    # type: ignore[assignment]
+    drifts: list = None         # type: ignore[assignment]
+
+    def __post_init__(self):
+        for f in ("backtests", "coverage_rows", "model_cards", "drifts"):
+            if getattr(self, f) is None:
+                setattr(self, f, [])
 
 
 def _fmt_won(v: float) -> str:
@@ -85,6 +100,12 @@ def generate_markdown(x: ReportInputs) -> str:
     add("")
     if any(grade(m) == DataGrade.D for m in x.dataset_meta):
         add("*D등급 레이어는 본 리포트의 수치·판정에 사용되지 않았습니다.*")
+        add("")
+    if x.coverage_rows:
+        from .coverage_table import as_markdown as cov_md
+        add("### 2-1. 15개 레이어 커버리지표 (계약 전 제출용)")
+        add("")
+        add(cov_md(x.coverage_rows))
         add("")
 
     # 3. 거래 정제
@@ -142,6 +163,59 @@ def generate_markdown(x: ReportInputs) -> str:
     else:
         add(f"- {x.sub_forecast.reason}")
     add("")
+
+    # 6-2. 가격 시나리오
+    if x.scenarios:
+        s = x.scenarios
+        add(f"## 6-2. 조건부 가격 시나리오 ({s.horizon_months}개월) [FORECAST]")
+        add("")
+        if x.trend:
+            add(f"- 시장 추세: 전체 {x.trend.slope_pct_per_year:+.1f}%/년, "
+                f"최근 {x.trend.recent_slope_pct_per_year:+.1f}%/년"
+                f"{' — **국면 전환 신호**' if x.trend.regime_shift else ''} "
+                f"(관측 {x.trend.n_months}개월)")
+            add("")
+        add("| 시나리오 | 연 변화율 | 기간 누적 | 기간말 ㎡당 | 전제 |")
+        add("|----------|-----------|-----------|-------------|------|")
+        for leg in s.legs:
+            add(f"| {leg.name} | {leg.annual_pct:+.1f}% | {leg.horizon_pct:+.1f}% | "
+                f"{_fmt_won(leg.price_ppsm)} | {' / '.join(leg.assumptions)} |")
+        add("")
+        add(f"- 앵커(품질조정 중위): {_fmt_won(s.anchor_ppsm)}/㎡ · "
+            f"결과를 가장 크게 가르는 변수: **{s.top_driver()}**")
+        add("")
+        add("| 민감도 순위 | 드라이버 | 영향 폭(연 %p) |")
+        add("|-------------|----------|----------------|")
+        for i, (drv, mag) in enumerate(s.sensitivities, 1):
+            add(f"| {i} | {drv} | {mag:.1f} |")
+        add("")
+        if x.scenario_id:
+            add(f"- 예측 이력 장부 봉인 ID: `{x.scenario_id}`")
+        for lim in s.limitations:
+            add(f"- {lim}")
+        add("")
+
+    # 6-3. 백테스트
+    if x.backtests:
+        add("## 6-3. 모델 검증 (백테스트)")
+        add("")
+        add("*과거 시점에서 그 시점의 정보만으로 산출한 구간을 이후 실현값과 대조한 결과입니다.*")
+        add("")
+        for bt in x.backtests:
+            add(bt.as_markdown())
+            add("")
+        if x.drifts:
+            add("### 6-3-1. 드리프트 감시")
+            add("")
+            for d in x.drifts:
+                add(d.as_markdown())
+                add("")
+    if x.model_cards:
+        add("## 6-4. 모델 카드")
+        add("")
+        for mc in x.model_cards:
+            add(mc.as_markdown())
+            add("")
 
     # 7. 공급
     add("## 7. 확률조정 공급")

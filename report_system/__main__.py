@@ -66,6 +66,36 @@ def cmd_coverage() -> int:
     return 0
 
 
+def cmd_backtest() -> int:
+    """샘플 데이터로 백테스트만 실행 (모델 검증 단독 확인용)."""
+    from datetime import date as _date
+
+    from .backtest import (backtest_price_bands, backtest_subscription,
+                           quarterly_cutoffs)
+    from .modelcard import detect_drift
+
+    comps = sd.build_comparables()
+    txs = sd.build_transactions(comps)
+    first = min(t.trade_date for t in txs)
+    reports = [
+        backtest_price_bands(sd.build_site(), comps, txs,
+                             quarterly_cutoffs(first, sd.ASOF)),
+        backtest_subscription(sd.build_subscription_history()),
+    ]
+    OUT.mkdir(exist_ok=True)
+    lines = ["# 백테스트 결과", ""]
+    for r in reports:
+        print(f"[{r.name}] n={r.n} — {r.verdict()}")
+        lines += [r.as_markdown(), ""]
+        if r.folds:
+            d = detect_drift(r)
+            print(f"  드리프트: {d.verdict}")
+            lines += [d.as_markdown(), ""]
+    (OUT / "backtest.md").write_text("\n".join(lines), encoding="utf-8")
+    print(f"저장: {OUT / 'backtest.md'}")
+    return 0
+
+
 def cmd_live(config: str, asof: str | None, offline: bool) -> int:
     from .live import run_live
     OUT.mkdir(exist_ok=True)
@@ -90,6 +120,7 @@ def main() -> int:
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("generate")
     sub.add_parser("coverage")
+    sub.add_parser("backtest")
     lv = sub.add_parser("live")
     lv.add_argument("--config", required=True, help="현장 설정 JSON 경로")
     lv.add_argument("--asof", help="분석 기준일 YYYY-MM-DD (기본: 설정값)")
@@ -100,6 +131,8 @@ def main() -> int:
         return cmd_generate()
     if args.command == "coverage":
         return cmd_coverage()
+    if args.command == "backtest":
+        return cmd_backtest()
     return cmd_live(args.config, args.asof, args.offline)
 
 
