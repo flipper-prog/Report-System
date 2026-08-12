@@ -1,0 +1,57 @@
+{
+  "_설명": "실데이터 실행 설정 예시. apt_nm은 국토부 실거래 데이터의 단지명과 정확히 일치해야 하며, 불일치 시 CLI가 해당 지역의 실제 단지명 목록을 안내한다. 분양가·좌표 등은 예시 값이므로 실제 현장 값으로 교체할 것.",
+  "asof": "2026-07-25",
+  "lawd_cd": "11680",
+  "months": 24,
+  "subscription_regions": ["서울"],
+  "subscription_lookback_days": 900,
+
+  "site": {
+    "id": "LIVE-001",
+    "name": "(현장명 입력)",
+    "address": "서울특별시 강남구 (주소 입력)",
+    "lat": 37.5172,
+    "lng": 127.0473,
+    "total_units": 460,
+    "region": "서울",
+    "brand_tier": 2,
+    "expected_movein": "2028-09-01",
+    "types": [
+      {"name": "59A", "area_m2": 59.9, "units": 180, "base_price": 1450000000, "option_cost": 30000000, "floors": [1, 25]},
+      {"name": "84A", "area_m2": 84.9, "units": 280, "base_price": 1980000000, "option_cost": 40000000, "floors": [1, 25]}
+    ]
+  },
+
+  "comparables": [
+    {"apt_nm": "래미안(예시-실단지명으로 교체)", "dist_m": 600, "brand_tier": 1},
+    {"apt_nm": "자이(예시-실단지명으로 교체)", "dist_m": 1100, "brand_tier": 1},
+    {"apt_nm": "분양권단지(예시)", "dist_m": 900, "presale": true}
+  ],
+
+  "supply": [
+    {"name": "인근 A단지 입주", "units": 900, "stage": "입주예정", "months_to_movein": 10},
+    {"name": "인근 B구역", "units": 1200, "stage": "착공", "months_to_movein": 26}
+  ],
+
+  "catalysts": [
+    {
+      "id": "K-1",
+      "name": "(노선명) 연장",
+      "stage": "설계·인가",
+      "budget_total": 1200000000000,
+      "budget_secured": 300000000000,
+      "dist_m": 700,
+      "time_saving_min": 12,
+      "negatives": ["개통 일정 지연 이력"],
+      "source_docs": ["고시 문서번호 기입"]
+    }
+  ],
+
+  "income_model": {"median": 78000000, "sigma": 0.45, "n": 500, "seed": 7},
+
+  "feedback": {
+    "total_consults": 0,
+    "rejections": {},
+    "visitor_home_regions": {}
+  }
+}

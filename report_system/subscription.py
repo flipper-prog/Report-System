@@ -41,11 +41,12 @@ def _match(history: list[SubscriptionRecord], region: str,
            gap_tol: float, supply_tol: int, same_region: bool) -> list[SubscriptionRecord]:
     out = []
     for r in history:
-        if same_region and r.region != region:
+        if same_region and region not in r.region and r.region not in region:
             continue
-        if abs(r.price_gap_pct - price_gap_pct) > gap_tol:
+        # 소스가 해당 조건을 제공하지 않으면(None) 그 기준은 적용하지 않는다
+        if r.price_gap_pct is not None and abs(r.price_gap_pct - price_gap_pct) > gap_tol:
             continue
-        if abs(r.concurrent_supply - concurrent_supply) > supply_tol:
+        if r.concurrent_supply is not None and abs(r.concurrent_supply - concurrent_supply) > supply_tol:
             continue
         out.append(r)
     return out
@@ -55,16 +56,22 @@ def _sensitivity_notes(history: list[SubscriptionRecord]) -> list[str]:
     """가격 갭·동시 공급이 결과를 얼마나 가르는지 간이 분석."""
     notes = []
     if len(history) >= 10:
-        cheap = [r.competition_rate for r in history if r.price_gap_pct <= 0]
-        rich = [r.competition_rate for r in history if r.price_gap_pct > 0]
+        cheap = [r.competition_rate for r in history
+                 if r.price_gap_pct is not None and r.price_gap_pct <= 0]
+        rich = [r.competition_rate for r in history
+                if r.price_gap_pct is not None and r.price_gap_pct > 0]
         if cheap and rich:
             notes.append(
                 f"가격 갭: 시세 이하 사례 중위 {median(cheap):.1f}:1 vs 시세 초과 {median(rich):.1f}:1")
-        low = [r.competition_rate for r in history if r.concurrent_supply <= 1000]
-        high = [r.competition_rate for r in history if r.concurrent_supply > 1000]
+        low = [r.competition_rate for r in history
+               if r.concurrent_supply is not None and r.concurrent_supply <= 1000]
+        high = [r.competition_rate for r in history
+                if r.concurrent_supply is not None and r.concurrent_supply > 1000]
         if low and high:
             notes.append(
                 f"동시 공급: 1천세대 이하 중위 {median(low):.1f}:1 vs 초과 {median(high):.1f}:1")
+        if any(r.price_gap_pct is None for r in history):
+            notes.append("일부 사례는 가격 갭·동시 공급 정보가 없어 지역·기간 기준으로만 매칭됨 [LIMITATION]")
     return notes
 
 

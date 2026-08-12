@@ -93,15 +93,19 @@ class Transaction:
 
 @dataclass
 class SubscriptionRecord:
-    """시장권 청약 이력 1건 (청약홈 공개 데이터 기준)."""
+    """시장권 청약 이력 1건 (청약홈 공개 데이터 기준).
+
+    price_gap_pct / concurrent_supply 는 데이터 소스가 제공하지 않으면 None —
+    청약 전망 모듈은 None 조건을 매칭 기준에서 제외한다(LIMITATION 기록).
+    """
     complex_id: str
     open_date: date
     units: int
     applicants: int
     region: str
-    price_gap_pct: float      # 분양가와 주변 품질조정 시세의 격차(%)
-    concurrent_supply: int    # 동시 분양·입주 물량(세대)
-    sold_out_in_order: bool   # 순위 내 마감 여부
+    price_gap_pct: Optional[float]    # 분양가와 주변 품질조정 시세의 격차(%)
+    concurrent_supply: Optional[int]  # 동시 분양·입주 물량(세대)
+    sold_out_in_order: bool           # 순위 내 마감 여부
 
     @property
     def competition_rate(self) -> float:

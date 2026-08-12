@@ -1,16 +1,21 @@
 """CLI.
 
 사용법:
-  python -m report_system generate   # 샘플 데이터로 진단리포트 생성 (out/)
-  python -m report_system coverage   # 예측 이력 장부의 적중률 조회
+  python -m report_system generate                      # 샘플 데이터 진단리포트 (out/)
+  python -m report_system live --config <site.json>     # 실데이터 진단리포트 (E01·E02)
+  python -m report_system coverage                      # 예측 이력 장부 적중률 조회
+
+실데이터 실행 전제: 환경변수 DATA_GO_KR_API_KEY (공공데이터포털 인증키).
 """
 from __future__ import annotations
 
 import argparse
 import pathlib
 import sys
+from datetime import date
 
 from . import sample_data as sd
+from .connectors.base import MissingApiKeyError
 from .ledger import ForecastLedger
 from .pipeline import run
 
@@ -61,11 +66,41 @@ def cmd_coverage() -> int:
     return 0
 
 
+def cmd_live(config: str, asof: str | None, offline: bool) -> int:
+    from .live import run_live
+    OUT.mkdir(exist_ok=True)
+    try:
+        result = run_live(
+            config, asof=date.fromisoformat(asof) if asof else None,
+            offline=offline)
+    except MissingApiKeyError as e:
+        print(f"[설정 필요] {e}", file=sys.stderr)
+        return 2
+    path = OUT / "live_report.md"
+    path.write_text(result.markdown, encoding="utf-8")
+    print(f"리포트 생성: {path}")
+    print("수집 이력: out/provenance.json")
+    if result.forecast_id:
+        print(f"청약 전망 봉인: {result.forecast_id}")
+    return 0
+
+
 def main() -> int:
     p = argparse.ArgumentParser(prog="report_system")
-    p.add_argument("command", choices=["generate", "coverage"])
+    sub = p.add_subparsers(dest="command", required=True)
+    sub.add_parser("generate")
+    sub.add_parser("coverage")
+    lv = sub.add_parser("live")
+    lv.add_argument("--config", required=True, help="현장 설정 JSON 경로")
+    lv.add_argument("--asof", help="분석 기준일 YYYY-MM-DD (기본: 설정값)")
+    lv.add_argument("--offline", action="store_true",
+                    help="네트워크 없이 캐시만 사용 (재현 실행)")
     args = p.parse_args()
-    return cmd_generate() if args.command == "generate" else cmd_coverage()
+    if args.command == "generate":
+        return cmd_generate()
+    if args.command == "coverage":
+        return cmd_coverage()
+    return cmd_live(args.config, args.asof, args.offline)
 
 
 if __name__ == "__main__":

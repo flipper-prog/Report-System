@@ -7,14 +7,49 @@ P0·P1 항목을 실행 코드로 구현한다. 외부 의존성 없음(Python 3
 ## 실행
 
 ```bash
-python3 -m report_system generate   # 샘플 데이터로 진단리포트 생성 → out/sample_report.md
-python3 -m report_system coverage   # 예측 이력 장부 적중률 조회
-python3 tests/test_system.py        # 테스트 (21건)
+# 1) 샘플(합성 데이터) — 키 없이 즉시 실행
+python3 -m report_system generate                  # → out/sample_report.md
+
+# 2) 실데이터 — 공공데이터포털 인증키 필요
+export DATA_GO_KR_API_KEY='발급받은_Decoding_키'
+cp examples/site_config.json my_site.json          # 현장·비교단지 정보 입력
+python3 -m report_system live --config my_site.json          # → out/live_report.md
+python3 -m report_system live --config my_site.json --offline # 캐시만 사용(재현 실행)
+
+# 3) 검증
+python3 -m report_system coverage   # 예측 이력 장부 적중률
+python3 tests/run_all.py            # 전체 테스트 (32건)
 ```
+
+### 실데이터 준비 절차
+
+1. [공공데이터포털](https://www.data.go.kr) 가입 후 두 API에 활용신청
+   - **국토교통부_아파트 매매 실거래가 자료** (E01) — 승인까지 수십 분
+   - **한국부동산원_청약홈 분양정보/경쟁률 조회** (E02) — odcloud 계열, 자동승인
+2. 마이페이지에서 **일반 인증키(Decoding)** 복사 → `DATA_GO_KR_API_KEY`로 export
+3. `examples/site_config.json`을 복사해 현장 정보 입력
+   - `lawd_cd`: 법정동 코드 5자리 (예: 강남구 `11680`)
+   - `comparables[].apt_nm`: **국토부 실거래 데이터의 단지명과 정확히 일치**해야 함.
+     불일치 시 CLI가 해당 지역의 실제 단지명 목록을 오류 메시지로 안내한다.
+   - `site.types[].base_price`: 분양가(원), `option_cost`: 유상옵션·확장비
+
+### 커넥터 동작
+
+| 항목 | 내용 |
+|------|------|
+| 캐시 | 모든 응답을 `out/cache/`에 저장. 동일 요청은 재호출하지 않으며 `--offline`로 재현 실행 |
+| 재시도 | 네트워크 오류 시 3회, 지수 백오프 |
+| 수집 이력 | `out/provenance.json` — 출처·URL·수집 시각·응답 sha256 (근거원장 입력). **인증키는 `***KEY***`로 마스킹** |
+| 응답 형식 | 실거래는 신형(`aptNm`)·구형(`아파트`) 태그 모두 파싱. 해제 거래(`cdealType=O`)는 정제 단계에서 제거·집계 |
+| 미제공 필드 | 청약홈은 가격 갭·동시 공급을 제공하지 않음 → 해당 조건을 매칭에서 제외하고 리포트에 LIMITATION 표기 |
 
 ## 아키텍처
 
 ```
+[실데이터] connectors/molit(E01 실거래) · connectors/applyhome(E02 청약)
+           └ 캐시·재시도·수집이력(Provenance) → live.py 가 설정(JSON)과 결합
+[샘플]     sample_data(합성)
+  ↓
 입력(현장·거래·청약·공급·계획·소득·현장반응)
   → validation   입력 검증 6종 + 치명 결함 시 분석 중단
   → transactions 거래 정제(취소·중복·이상·특수)          [정제 내역 리포트 표기]
@@ -46,16 +81,25 @@ python3 tests/test_system.py        # 테스트 (21건)
 ## 저장소 구성
 
 ```
-report_system/   파이프라인 패키지 (stdlib only)
-tests/           unittest 스위트
-proposal/        사업 제안서 (md + docx 납품본 + 변환 스크립트)
-docs/            설계검토보고서 (P0/P1/P2 진단)
-out/             생성 산출물 (git 미추적)
+report_system/             파이프라인 패키지 (stdlib only)
+  connectors/              실데이터 커넥터 (molit=E01, applyhome=E02, base=캐시·이력)
+  live.py                  설정 JSON + 커넥터 → 리포트
+tests/                     unittest 스위트 (32건) — run_all.py 로 일괄 실행
+examples/site_config.json  실데이터 실행 설정 예시
+proposal/                  사업 제안서 (md + docx 납품본 + 변환 스크립트)
+docs/                      설계검토보고서 (P0/P1/P2 진단)
+out/                       생성 산출물·캐시·장부 (git 미추적)
 ```
 
-## 현재 한계 (설계검토보고서 P2 잔여)
+## 현재 한계
 
-샘플 데이터는 합성이며 실데이터 커넥터(국토부 실거래·청약홈 OpenAPI)는 미구현.
-모델 드리프트 관리, 비아파트 상품 프로파일, 커버리지표 자동 생성은 로드맵 항목.
-조정계수(연식·층·단계 실현률 등)는 파라미터로 노출되어 있으며 실데이터 백테스트로
-교정하기 전까지는 예시값이다.
+| 항목 | 상태 |
+|------|------|
+| 실거래(E01)·청약(E02) | **구현 완료** — 캐시·재시도·수집이력 포함 |
+| 매물·호가 (P1-2 선행 신호) | 커넥터 미구현 → 조기경보의 시장 신호 비활성, 커버리지에 D등급으로 노출 |
+| 소득·구매력 (L5) | 공공 대체 로그정규 근사 — 설정의 분포 파라미터 기반, LIMITATION 표기 |
+| 조정계수 | 연식·층·단계 실현률·DSR 가정은 파라미터 노출. **실데이터 백테스트로 교정 전까지 예시값** |
+| P2 잔여 | 모델 드리프트 관리, 비아파트 상품 프로파일, 커버리지표 자동 생성 |
+
+실데이터 실행 시 조정계수가 미교정 상태라는 점은 리포트의 가정·한계 절에 표기되며,
+예측 이력 장부(`coverage`)에 실적이 누적되면 적중률 기준으로 재보정한다.
