@@ -22,9 +22,10 @@ from .models import (AdGrade, CatalystPlan, Claim, ClaimGrade, Comparable,
                      SubscriptionRecord, SupplyItem, Transaction,
                      total_acquisition_cost)
 from .pricing import market_positions, quality_adjusted_bands
+from .profiles import applicability_note, get as get_profile
 from .report import ReportInputs, generate_markdown
 from .scenarios import build as build_scenarios
-from .subscription import predict
+from .subscription import SubscriptionForecast, predict
 from .supply import probability_adjusted
 from .timeseries import monthly_trend
 from .transactions import clean
@@ -65,11 +66,14 @@ def run(
         msgs = "; ".join(i.message for i in issues if i.fatal)
         raise FatalInputError(f"분석 중단: {msgs}")
 
+    # 1-2) 상품 프로파일 (P2-2) — 비교군·표본·수요가중·청약 적용 여부를 결정
+    profile = get_profile(site.product_type)
+
     # 2) 거래 정제
     cr = clean(txs)
 
     # 3) 가격 밴드·시장 위치
-    bands = quality_adjusted_bands(site, comps, cr.kept, asof)
+    bands = quality_adjusted_bands(site, comps, cr.kept, asof, profile=profile)
     positions = market_positions(site, bands)
 
     # 4) 실부담
@@ -80,7 +84,12 @@ def run(
     subj_ppsm = median(total_acquisition_cost(t) / t.area_m2 for t in site.types)
     gap_pct = (subj_ppsm - market_ppsm) / market_ppsm * 100
     concurrent = int(probability_adjusted(supply_items, window_months=12).adjusted_units)
-    sub_fc = predict(sub_history, site.region, gap_pct, concurrent)
+    if profile.subscription_applicable:
+        sub_fc = predict(sub_history, site.region, gap_pct, concurrent)
+    else:
+        sub_fc = SubscriptionForecast(
+            ok=False,
+            reason=f"{profile.product.value}은 청약 제도 비적용 상품 — 전망 미실행 (프로파일 규칙)")
     fid = ""
     if sub_fc.ok:
         fid = ledger.seal(
@@ -147,7 +156,7 @@ def run(
     # 8) 판정 4종
     v1 = price_verdict(positions)
     v2 = demand_verdict(afford, sub_fc)
-    liq = analyze_liquidity(cr.kept, comps, asof)
+    liq = analyze_liquidity(cr.kept, comps, asof, good_threshold=profile.turnover_good_pct)
     v3 = supply_verdict(sa, site.total_units, liq)
     v4 = catalyst_verdict(cards)
     verdicts = [v1, v2, v3, v4]
@@ -170,7 +179,9 @@ def run(
         catalysts=cards, verdicts=verdicts, alerts=alerts,
         feedback_flags=flags, lint=lint_res,
         trend=trend, scenarios=scen, scenario_id=scen_id, backtests=backtests,
-        coverage_rows=cov_rows, model_cards=cards_md, drifts=drifts)
+        coverage_rows=cov_rows, model_cards=cards_md, drifts=drifts,
+        liquidity=liq, profile_note=applicability_note(profile),
+        profile_notes=list(profile.notes))
     return PipelineResult(generate_markdown(inputs), inputs, fid)
 
 

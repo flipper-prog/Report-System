@@ -87,18 +87,26 @@ def quality_adjusted_bands(
     comps: dict[str, Comparable],
     txs: list[Transaction],
     asof: date,
+    profile=None,
 ) -> list[Band]:
-    """타입별(가능하면 층구간별) 품질조정 가격 밴드."""
+    """타입별(가능하면 층구간별) 품질조정 가격 밴드.
+
+    profile(상품 프로파일)이 주어지면 면적 허용치·거리·최소 표본을 상품에 맞게
+    적용한다. 미지정 시 아파트 기준 상수를 사용한다.
+    """
+    tol = profile.area_tolerance if profile else 0.20
+    max_dist = profile.max_dist_m if profile else MAX_DIST_M
+    min_samples = profile.min_samples_band if profile else MIN_SAMPLES_BAND
     bands: list[Band] = []
 
     for t in site.types:
-        # 면적 유사(±20%) + 거리 조건 비교 거래 수집. 분양권은 가중 반복. (P1-1)
+        # 면적 유사 + 거리 조건 비교 거래 수집. 분양권은 가중 반복. (P1-1)
         samples: list[tuple[str, float]] = []  # (floor_band, adjusted_ppsm)
         for tx in txs:
             comp = comps.get(tx.complex_id)
-            if comp is None or comp.dist_m > MAX_DIST_M:
+            if comp is None or comp.dist_m > max_dist:
                 continue
-            if not (t.area_m2 * 0.8 <= tx.area_m2 <= t.area_m2 * 1.2):
+            if not (t.area_m2 * (1 - tol) <= tx.area_m2 <= t.area_m2 * (1 + tol)):
                 continue
             adj = _adjust_ppsm(tx, comp, asof, t.floors)
             weight = PRESALE_WEIGHT if comp.is_presale_right else 1
@@ -112,13 +120,13 @@ def quality_adjusted_bands(
         made_fb_level = False
         for fb in ("저층", "기준층", "상층"):
             vals = by_fb.get(fb, [])
-            if len(vals) >= MIN_SAMPLES_BAND:
+            if len(vals) >= min_samples:
                 q25, q50, q75 = _quantile3(vals)
                 bands.append(Band("타입·층구간", t.name, fb, q25, q50, q75, len(vals), rolled_up=False))
                 made_fb_level = True
 
         all_vals = [v for _, v in samples]
-        if len(all_vals) >= MIN_SAMPLES_BAND:
+        if len(all_vals) >= min_samples:
             q25, q50, q75 = _quantile3(all_vals)
             bands.append(Band(
                 "타입", t.name, None, q25, q50, q75, len(all_vals),
@@ -129,7 +137,7 @@ def quality_adjusted_bands(
             bands.append(Band(
                 "타입", t.name, None, *_quantile3(all_vals), len(all_vals),
                 rolled_up=True,
-                note=f"표본 {len(all_vals)}건(<{MIN_SAMPLES_BAND}) — 참고치. 수치 제시 대신 정성 판단 권고"))
+                note=f"표본 {len(all_vals)}건(<{min_samples}) — 참고치. 수치 제시 대신 정성 판단 권고"))
 
     return bands
 

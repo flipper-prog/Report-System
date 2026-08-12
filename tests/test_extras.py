@@ -81,6 +81,52 @@ class TestProfiles(unittest.TestCase):
             self.assertTrue(profiles.get(t).notes)
 
 
+class TestProfileIntegration(unittest.TestCase):
+    """프로파일이 실제 파이프라인 동작을 바꾸는지 확인 (dead code 방지)."""
+
+    def _run(self, product: str):
+        from report_system.ledger import ForecastLedger
+        from report_system.pipeline import run
+        site = sd.build_site()
+        site.product_type = product
+        comps = sd.build_comparables()
+        return run(site=site, comps=comps, txs=sd.build_transactions(comps),
+                   sub_history=sd.build_subscription_history(),
+                   supply_items=sd.build_supply(),
+                   catalyst_plans_old=sd.build_catalysts(),
+                   catalyst_plans_new=sd.build_catalysts(),
+                   dataset_meta=sd.build_dataset_meta(),
+                   incomes=sd.build_incomes(),
+                   feedback=sd.build_feedback(),
+                   listings=sd.build_listing_snapshots(),
+                   asof=sd.ASOF, ledger=ForecastLedger())
+
+    def test_knowledge_center_skips_subscription_forecast(self):
+        res = self._run("지식산업센터")
+        self.assertFalse(res.inputs.sub_forecast.ok)
+        self.assertIn("청약 제도 비적용", res.inputs.sub_forecast.reason)
+        self.assertEqual(res.forecast_id, "")          # 봉인 대상 없음
+        self.assertIn("청약 전망 미적용", res.markdown)
+
+    def test_apartment_produces_subscription_forecast(self):
+        res = self._run("아파트")
+        self.assertTrue(res.inputs.sub_forecast.ok)
+        self.assertTrue(res.forecast_id)
+
+    def test_profile_changes_band_sample_size(self):
+        """오피스텔은 면적 허용치가 넓어 동일 데이터에서 표본이 더 많이 잡힌다."""
+        apt = self._run("아파트")
+        oft = self._run("오피스텔")
+        apt_n = max((b.n for b in apt.inputs.bands if b.level == "타입"), default=0)
+        oft_n = max((b.n for b in oft.inputs.bands if b.level == "타입"), default=0)
+        self.assertGreater(oft_n, apt_n)
+
+    def test_profile_notes_rendered(self):
+        res = self._run("오피스텔")
+        self.assertIn("오피스텔", res.markdown)
+        self.assertIn("직주근접", res.markdown)
+
+
 class TestHtmlRenderer(unittest.TestCase):
     def test_tables_headings_lists(self):
         md = ("# 제목\n\n## 절\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n"

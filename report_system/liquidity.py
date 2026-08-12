@@ -26,15 +26,16 @@ class LiquidityResult:
     months_between_trades: float | None  # 세대당 평균 거래 간격(개월)
     n_trades: int
     window_months: int
+    good_threshold: float = 6.0          # 상품 프로파일별 '양호' 기준 (P2-2)
     limitations: list[str] = field(default_factory=list)
 
     @property
     def label(self) -> str:
         if self.turnover_pct_year is None:
             return "판정 불가"
-        if self.turnover_pct_year >= 6.0:
+        if self.turnover_pct_year >= self.good_threshold:
             return "환금성 양호"
-        if self.turnover_pct_year >= 3.0:
+        if self.turnover_pct_year >= self.good_threshold / 2:
             return "환금성 보통"
         return "환금성 취약"
 
@@ -50,14 +51,15 @@ class LiquidityResult:
 
 
 def analyze(txs: list[Transaction], comps: dict[str, Comparable],
-            asof: date, window_months: int = 24) -> LiquidityResult:
+            asof: date, window_months: int = 24,
+            good_threshold: float = 6.0) -> LiquidityResult:
     cutoff_key = (asof.year * 12 + asof.month) - window_months
     recent = [t for t in txs
               if not t.canceled and (t.trade_date.year * 12 + t.trade_date.month) > cutoff_key]
 
     lims: list[str] = ["전세 유동성·매물 체류일수는 커넥터 미구현으로 미반영 [LIMITATION]"]
     if not recent:
-        return LiquidityResult(None, None, None, 0, window_months, lims)
+        return LiquidityResult(None, None, None, 0, window_months, good_threshold, lims)
 
     # 회전율: 관측 단지들의 세대수 합 대비 거래건수
     unit_total = sum(c.units for cid, c in comps.items()
@@ -80,4 +82,4 @@ def analyze(txs: list[Transaction], comps: dict[str, Comparable],
         dispersion = (q3 - q1) / med if med else None
 
     return LiquidityResult(turnover, dispersion, months_between,
-                           len(recent), window_months, lims)
+                           len(recent), window_months, good_threshold, lims)

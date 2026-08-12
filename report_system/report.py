@@ -51,9 +51,13 @@ class ReportInputs:
     coverage_rows: list = None  # type: ignore[assignment]
     model_cards: list = None    # type: ignore[assignment]
     drifts: list = None         # type: ignore[assignment]
+    liquidity: object | None = None
+    profile_note: str = ""
+    profile_notes: list = None  # type: ignore[assignment]
 
     def __post_init__(self):
-        for f in ("backtests", "coverage_rows", "model_cards", "drifts"):
+        for f in ("backtests", "coverage_rows", "model_cards", "drifts",
+                  "profile_notes"):
             if getattr(self, f) is None:
                 setattr(self, f, [])
 
@@ -74,6 +78,12 @@ def generate_markdown(x: ReportInputs) -> str:
     add("> 본 리포트는 가격 상승·수익·계약을 보장하지 않습니다. 모든 전망(FORECAST)은 "
         "조건부 구간이며 예측 이력 장부에 봉인되어 실적과 대조됩니다.")
     add("")
+    if x.profile_note:
+        add(f"**{x.profile_note}**")
+        add("")
+        for n in x.profile_notes:
+            add(f"- {n}")
+        add("")
 
     # 1. 결론 요약 (4개 독립 판정 — 단일 점수로 합산하지 않음)
     add("## 1. 결론 요약 — 4개 독립 판정")
@@ -228,6 +238,25 @@ def generate_markdown(x: ReportInputs) -> str:
     for name, units, stage, adj in x.supply.items:
         add(f"| {name} | {units:,} | {stage} | {adj:,.0f} |")
     add("")
+
+    # 7-2. 환금성
+    if x.liquidity is not None:
+        liq = x.liquidity
+        add("## 7-2. 환금성")
+        add("")
+        add("| 지표 | 값 |")
+        add("|------|-----|")
+        add(f"| 연환산 거래 회전율 | "
+            f"{f'{liq.turnover_pct_year:.1f}%' if liq.turnover_pct_year is not None else '산출 불가'} |")
+        add(f"| 판정 | {liq.label} (기준 {liq.good_threshold:.0f}%) |")
+        add(f"| 가격 분산 | {f'{liq.dispersion:.2f}' if liq.dispersion is not None else '-'} |")
+        add(f"| 세대당 평균 거래 간격 | "
+            f"{f'{liq.months_between_trades:.0f}개월' if liq.months_between_trades is not None else '-'} |")
+        add(f"| 관측 거래 | {liq.n_trades}건 / 최근 {liq.window_months}개월 |")
+        add("")
+        for lim in liq.limitations:
+            add(f"- {lim}")
+        add("")
 
     # 8. 촉매카드
     add("## 8. 개발계획 촉매카드")

@@ -55,6 +55,7 @@ class Site:
     expected_movein: Optional[date] = None
     region: str = ""          # 시장권 식별자
     brand_tier: int = 2       # 1(상위)~3
+    product_type: str = "아파트"   # profiles.ProductType 값
 
 
 ACQUISITION_TAX_RATE = 0.033  # 취득세 등 부대비용 간이율(파라미터. 계약 전 확정)
