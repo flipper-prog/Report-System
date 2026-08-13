@@ -321,3 +321,16 @@ def build_competitors() -> "tuple[list, list]":
                            11_100_000, 188, ["발코니 무상확장"]),   # 신선도 경고
     ]
     return old, new
+
+
+def build_funnel() -> "FunnelSnapshot":
+    """퍼널 실적 합성 표본 — 상담→방문 구간이 병목으로 잡히도록 구성."""
+    from .funnel import FunnelSnapshot
+    return FunnelSnapshot(
+        clicks=4_200, leads=980, consulted=760, visited=210, contracted=18,
+        spend=180_000_000, contact_delayed=250, followups_sent=2_400)
+
+
+def build_funnel_benchmarks() -> dict[str, float]:
+    """계약 시 확정하는 기준선(제안서 10.4)의 예시값."""
+    return {"S1": 0.22, "S2": 0.80, "S3": 0.45, "S4": 0.12}

@@ -17,6 +17,7 @@ from .modelcard import (detect_drift, price_band_card, scenario_card,
 from .claims import lint
 from .evidence import EvidenceLedger
 from .feedback import check as feedback_check
+from .funnel import FunnelSnapshot, diagnose as diagnose_funnel
 from .ledger import ForecastLedger
 from .liquidity import analyze as analyze_liquidity
 from .jeonse import analyze as analyze_jeonse
@@ -81,6 +82,8 @@ def run(
     provenance: "list | None" = None,       # 수집 이력 → 근거원장 출처 연결
     housing: object | None = None,          # L13 (주택건설실적)
     income_stats: object | None = None,     # L5 (실측 소득 통계)
+    funnel: "FunnelSnapshot | None" = None,   # 퍼널 실적 (제10장)
+    funnel_benchmarks: "dict[str, float] | None" = None,
 ) -> PipelineResult:
     # 1) 입력 검증 — 치명 결함 시 중단
     issues = (validate_site(site, asof) + validate_transactions(txs, asof)
@@ -248,6 +251,12 @@ def run(
     claims = _build_claims(site, positions, sub_fc, cards, transit)
     lint_res = lint(claims)
 
+    # 9-2) 퍼널 병목 진단 — 광고·상담·조건 중 어디가 막혔는가 (10.5)
+    funnel_dx = None
+    if funnel is not None:
+        funnel_dx = diagnose_funnel(funnel, funnel_benchmarks,
+                                    feedback=feedback, verdicts=verdicts)
+
     # 10-2) 판매 논리 산출물 — 분석을 영업 언어로 옮기는 통제 지점 (제6장)
     pack = build_salespack(
         positions=positions, verdicts=verdicts, afford=afford,
@@ -282,7 +291,7 @@ def run(
         migration=migration, mobility=mobility, transit=transit,
         jeonse=jeonse_res, evidence=ledger_ev, housing=housing,
         income_stats=income_stats, price_decision=decision,
-        salespack=pack)
+        salespack=pack, funnel=funnel_dx)
     return PipelineResult(generate_markdown(inputs), inputs, fid)
 
 

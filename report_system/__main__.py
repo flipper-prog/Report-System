@@ -40,7 +40,9 @@ def _demo_layers() -> dict:
             "housing": sd.build_housing(),
             "income_stats": sd.build_income_stats(),
             "region_stats": sd.build_region_stats(),
-            "commerce": sd.build_commerce()}
+            "commerce": sd.build_commerce(),
+            "funnel": sd.build_funnel(),
+            "funnel_benchmarks": sd.build_funnel_benchmarks()}
 
 
 def cmd_generate(full: bool = False) -> int:

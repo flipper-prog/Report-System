@@ -24,7 +24,7 @@ python3 -m report_system verify     # 장부 전수 감사 — 봉인 해시 재
 python3 -m report_system backtest   # 백테스트 단독 실행 → out/backtest.md
 python3 -m report_system calibrate --config my_site.json   # 조정계수 교정 → out/calibration.md
 python3 -m report_system history --site SAMPLE-001   # 회차별 판정·지표 변화
-python3 tests/run_all.py            # 전체 테스트 (384건)
+python3 tests/run_all.py            # 전체 테스트 (404건)
 ```
 
 ### 실데이터 준비 절차
@@ -149,6 +149,7 @@ python3 -m report_system verify                           # ⑤ 장부 감사
   ├→ alerts      조기경보(개발계획·시장·공급 신호 스냅숏 비교)
   ├→ competitor  경쟁 현장 모니터링(가격·혜택·잔여 변동, 수집 신선도 경고)
   ├→ feedback    현장 반응 정합성(거절 사유 vs 4개 판정, 재검토 플래그)
+  ├→ funnel      퍼널 병목 진단(기준선 대조 → 운영 문제 / 조건 문제 분류)
   → verdicts     4개 독립 판정(가격·수요·공급/환금성·촉매) × 4속성 — 단일 점수 합산 없음
   → claims       표현 5등급 + 광고 3등급 + 린트 게이트(금지 표현·무근거 차단)
   → runstore     회차 저장·직전 대비 '변화' 산출 (판정 4속성 완성)
@@ -174,6 +175,7 @@ python3 -m report_system verify                           # ⑤ 장부 감사
 | 계수는 검증을 통과할 때만 바뀐다 | 헤도닉 회귀 + 홀드아웃 잔차 분산(`calibrate.py`) — 유의성·부호·범위 게이트 통과 후에도 검증 구간이 개선돼야 채택 | 5.4.2 |
 | 상품이 다르면 모델도 다르다 | 상품 프로파일(`profiles.py`) — 비교군·표본·청약 적용 분리 | P2-2 |
 | 판정은 직전 회차와 비교된다 | 실행 이력(`runstore.py`) — 판정별 관련 지표만 델타 표기 | 5.4.5 '변화' |
+| 병목은 기준선이 있을 때만 지목한다 | 퍼널 진단(`funnel.py`) — 기준선 미설정 시 판정 유보. 방문→계약 병목은 광고가 아닌 **조건 문제**로 분류해 시행사 안건으로 승격 | 3.5·10.5 |
 | 상담원에게 근거 없는 문장을 주지 않는다 | 판매 논리 산출물(`salespack.py`) — 6축 중 근거가 산출된 축만 답변 생성, 나머지는 '확인 후 회신' | 제6장 |
 | 권고는 예언이 아니라 규칙이다 | 분양가 결정 시뮬레이터(`price_decision.py`) — 판단 기준을 문장으로 함께 내고, 조건을 만족하는 후보가 없으면 권고하지 않는다 | 5.6 가격 전략 |
 | 모든 수치는 되물을 수 있다 | 근거원장(`evidence.py`) — 지표별 출처·수집 해시·산출식·표본·한계. **미산출 항목도 사유와 함께 등재** | 5.10 검증 가능성 |
@@ -186,7 +188,7 @@ report_system/             파이프라인 패키지 (stdlib only)
   geo.py                   좌표 유틸 (직선거리·보행 보정 도보 시간)
   calibrate.py             조정계수 교정 (헤도닉 회귀 + 홀드아웃 검증, stdlib OLS)
   live.py                  설정 JSON + 커넥터 → 리포트
-tests/                     unittest 스위트 (384건) — run_all.py 로 일괄 실행
+tests/                     unittest 스위트 (404건) — run_all.py 로 일괄 실행
 examples/site_config.json  실데이터 실행 설정 예시
 proposal/                  사업 제안서 (md + docx 납품본 + 변환 스크립트)
 docs/                      설계검토보고서 (P0/P1/P2 진단)

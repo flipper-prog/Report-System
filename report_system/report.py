@@ -66,6 +66,7 @@ class ReportInputs:
     income_stats: object | None = None
     price_decision: object | None = None
     salespack: object | None = None
+    funnel: object | None = None
 
     def __post_init__(self):
         for f in ("backtests", "coverage_rows", "model_cards", "drifts",
@@ -407,6 +408,17 @@ def generate_markdown(x: ReportInputs) -> str:
         for c, reason in x.lint.blocked:
             add(f"- ~~{c.text}~~ — {reason}")
     add("")
+
+    # 9-2. 퍼널 병목 진단
+    if x.funnel is not None:
+        add("## 9-2. 퍼널 병목 진단")
+        add("")
+        add("*\"계약이 부진하다\"는 관찰은 대응을 지시하지 않습니다. 광고를 늘려야 "
+            "하는지, 상담을 교정해야 하는지, 분양 조건을 재검토해야 하는지가 "
+            "갈리기 때문입니다. 병목의 위치와 분류를 먼저 확정합니다.*")
+        add("")
+        add(x.funnel.as_markdown())
+        add("")
 
     # 10-2. 판매 논리 산출물
     if x.salespack is not None:
