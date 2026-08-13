@@ -174,3 +174,66 @@ class TestScenarioSealing(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestLedgerAudit(unittest.TestCase):
+    """'봉인된다'는 주장이 실제로 성립하는지 감사한다."""
+
+    def _ledger(self, n: int = 3):
+        from report_system.ledger import ForecastLedger
+        led = ForecastLedger()
+        ids = [led.seal("subscription", f"S{i}", 4.0 + i, 9.0 + i, 0.6,
+                        "m-1", "2026-07-25", {"i": i}) for i in range(n)]
+        return led, ids
+
+    def test_all_seals_intact_and_triggers_live(self):
+        from report_system.ledger import audit
+        led, ids = self._ledger()
+        led.resolve(ids[0], 6.0)
+        rep = audit(led)
+        self.assertEqual(rep.total, 3)
+        self.assertEqual(rep.tampered, [])
+        self.assertIn("forecasts_no_update", rep.triggers)
+        self.assertIn("forecasts_no_delete", rep.triggers)
+        self.assertTrue(rep.trigger_test.startswith("차단"))
+        self.assertTrue(rep.ok)
+
+    def test_resolution_state_recorded(self):
+        from report_system.ledger import audit
+        led, ids = self._ledger()
+        led.resolve(ids[1], 100.0)          # 구간 밖
+        rows = {r.forecast_id: r for r in audit(led).rows}
+        self.assertTrue(rows[ids[1]].resolved)
+        self.assertFalse(rows[ids[1]].hit)
+        self.assertFalse(rows[ids[0]].resolved)
+        self.assertIsNone(rows[ids[0]].hit)
+
+    def test_tampered_payload_is_detected(self):
+        """트리거를 우회해 본문만 바꿔치기해도 해시 재계산에서 걸린다."""
+        from report_system.ledger import audit
+        led, ids = self._ledger(1)
+        led.conn.execute("DROP TRIGGER forecasts_no_update")
+        led.conn.execute("UPDATE forecasts SET payload='{\"조작\":1}' WHERE id=?",
+                         (ids[0],))
+        led.conn.commit()
+        rep = audit(led)
+        self.assertEqual(len(rep.tampered), 1)
+        self.assertEqual(rep.tampered[0].forecast_id, ids[0])
+        self.assertFalse(rep.ok)
+        self.assertIn("변조 의심", rep.as_markdown())
+
+    def test_missing_trigger_makes_audit_fail(self):
+        from report_system.ledger import audit
+        led, _ = self._ledger(1)
+        led.conn.execute("DROP TRIGGER forecasts_no_update")
+        led.conn.commit()
+        rep = audit(led)
+        self.assertEqual(rep.tampered, [])          # 본문은 멀쩡
+        self.assertIn("통과됨", rep.trigger_test)    # 그러나 불변 보장이 깨졌다
+        self.assertFalse(rep.ok)
+
+    def test_empty_ledger_is_reported_not_crashed(self):
+        from report_system.ledger import ForecastLedger, audit
+        rep = audit(ForecastLedger())
+        self.assertEqual(rep.total, 0)
+        self.assertIn("시도할 대상 없음", rep.trigger_test)

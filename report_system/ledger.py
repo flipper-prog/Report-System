@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -131,3 +131,79 @@ class ForecastLedger:
             raise KeyError(forecast_id)
         payload, digest = row
         return hashlib.sha256(payload.encode()).hexdigest() == digest
+
+
+# ── 전수 감사 (verify) ──────────────────────────────────────────────────────
+
+@dataclass
+class AuditRow:
+    forecast_id: str
+    kind: str
+    target: str
+    issued_at: str
+    intact: bool
+    resolved: bool
+    hit: Optional[bool]
+
+
+@dataclass
+class AuditReport:
+    rows: list[AuditRow] = field(default_factory=list)
+    triggers: list[str] = field(default_factory=list)
+    trigger_test: str = ""
+
+    @property
+    def total(self) -> int:
+        return len(self.rows)
+
+    @property
+    def tampered(self) -> list[AuditRow]:
+        return [r for r in self.rows if not r.intact]
+
+    @property
+    def ok(self) -> bool:
+        return not self.tampered and self.trigger_test.startswith("차단")
+
+    def as_markdown(self) -> str:
+        L = [f"봉인 {self.total}건 — 무결 {self.total - len(self.tampered)} · "
+             f"변조 의심 {len(self.tampered)}",
+             f"불변 트리거: {', '.join(self.triggers) or '없음'}",
+             f"수정 시도 테스트: {self.trigger_test}"]
+        if self.tampered:
+            L.append("")
+            L.append("변조 의심 항목:")
+            L += [f"  - {r.forecast_id} ({r.issued_at})" for r in self.tampered]
+        return "\n".join(L)
+
+
+def audit(ledger: "ForecastLedger") -> AuditReport:
+    """장부 전수 감사 — 봉인 해시 재계산 + 불변 트리거 실제 동작 확인.
+
+    '봉인된다'는 주장은 트리거가 실제로 살아 있어야 성립한다. 스키마에 트리거가
+    선언돼 있는지 보는 것으로는 부족하므로, 실제 UPDATE 를 시도해 막히는지까지
+    확인한다(트랜잭션은 되돌린다).
+    """
+    rep = AuditReport()
+    for fid, kind, target, issued in ledger.conn.execute(
+            "SELECT id, kind, target, issued_at FROM forecasts ORDER BY issued_at"):
+        o = ledger.conn.execute(
+            "SELECT hit FROM outcomes WHERE forecast_id=?", (fid,)).fetchone()
+        rep.rows.append(AuditRow(
+            fid, kind, target, issued, ledger.verify_seal(fid),
+            o is not None, bool(o[0]) if o else None))
+
+    rep.triggers = [r[0] for r in ledger.conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='trigger' ORDER BY name")]
+
+    if not rep.rows:
+        rep.trigger_test = "봉인 0건 — 시도할 대상 없음"
+        return rep
+    try:
+        ledger.conn.execute("UPDATE forecasts SET lo = lo + 1 WHERE id=?",
+                            (rep.rows[0].forecast_id,))
+        ledger.conn.rollback()
+        rep.trigger_test = "통과됨 — 불변 보장 실패 (트리거 확인 필요)"
+    except sqlite3.Error as e:
+        ledger.conn.rollback()
+        rep.trigger_test = f"차단됨 ({e})"
+    return rep

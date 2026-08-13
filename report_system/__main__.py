@@ -5,6 +5,7 @@
   python -m report_system live --config <site.json>     # 실데이터 진단리포트 (E01·E02)
   python -m report_system doctor --config <site.json>   # 실행 전 설정·연결 진단
   python -m report_system coverage                      # 예측 이력 장부 적중률 조회
+  python -m report_system verify                        # 장부 전수 감사(봉인 무결성·불변)
 
 실데이터 실행 전제: 환경변수 DATA_GO_KR_API_KEY (공공데이터포털 인증키).
 """
@@ -144,6 +145,40 @@ def cmd_history(site_id: str) -> int:
     return 0
 
 
+def cmd_verify() -> int:
+    """예측 이력 장부 전수 감사 — 봉인 무결성과 불변 보장을 실제로 확인한다.
+
+    '봉인된다'는 주장은 검증 가능해야 한다. 저장된 봉인 해시를 전부 재계산하고,
+    실제 수정 시도가 차단되는지까지 확인한 뒤 결과를 그대로 출력한다.
+    """
+    from .ledger import audit
+
+    path = OUT / "forecast_ledger.db"
+    if not path.exists():
+        print(f"장부 없음: {path} — generate 또는 live 를 먼저 실행하십시오.",
+              file=sys.stderr)
+        return 1
+    ledger = ForecastLedger(str(path))
+    rep = audit(ledger)
+    print(rep.as_markdown())
+
+    print()
+    for kind, nominal in (("subscription", 0.60), ("price", 0.0)):
+        rows = [r for r in rep.rows if r.kind == kind]
+        if not rows:
+            continue
+        if nominal <= 0:
+            print(f"[{kind}] 봉인 {len(rows)}건 — 전제 기반 구간이므로 적중률 산출 대상 아님")
+            continue
+        print(f"[{kind}] {ledger.coverage(kind, nominal).verdict()}")
+
+    if not rep.ok:
+        print("\n감사 실패 — 장부 무결성 또는 불변 보장에 문제가 있습니다.",
+              file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_doctor(config: str, skip_api: bool) -> int:
     """실행 전 설정·연결·데이터 가용성 진단."""
     import json
@@ -274,6 +309,7 @@ def main() -> int:
                     help="examples/ 예시 파일로 전 레이어를 켠 리포트 생성")
     sub.add_parser("coverage")
     sub.add_parser("backtest")
+    sub.add_parser("verify")
     hs = sub.add_parser("history")
     hs.add_argument("--site", required=True, help="현장 ID")
     dc = sub.add_parser("doctor")
@@ -295,6 +331,8 @@ def main() -> int:
         return cmd_coverage()
     if args.command == "backtest":
         return cmd_backtest()
+    if args.command == "verify":
+        return cmd_verify()
     if args.command == "doctor":
         return cmd_doctor(args.config, args.skip_api)
     if args.command == "history":
