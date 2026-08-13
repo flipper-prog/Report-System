@@ -268,3 +268,30 @@ def build_income_stats() -> "IncomeStats":
     return _validate(IncomeStats(
         period="2024", median_income=46_800_000, mean_income=59_400_000,
         n_filers=138_000, sigma=0.45, source="소득 통계 합성 표본"))
+
+
+def build_region_stats() -> "RegionStats":
+    """SGIS 지역 통계 합성 표본 (generate --full 시연용)."""
+    from .connectors.sgis import RegionStats, YearValue
+    years = [2021, 2023, 2025]
+    return RegionStats(
+        adm_cd="00000",
+        population=[YearValue(y, 298_000 + (y - 2021) * 2_600) for y in years],
+        households=[YearValue(y, 121_000 + (y - 2021) * 2_100) for y in years],
+        avg_household_size=[YearValue(y, 2.46 - (y - 2021) * 0.02) for y in years],
+        companies=[YearValue(y, 21_500 + (y - 2021) * 260) for y in years],
+        employees=[YearValue(y, 96_000 + (y - 2021) * 1_400) for y in years])
+
+
+def build_commerce() -> "CommerceStats":
+    """상권 합성 표본 — 생활 필수업종이 모두 채워진 생활권."""
+    from .connectors.commerce import CommerceStats
+    by_major = {"소매": 148, "음식": 121, "의료": 34, "교육": 41,
+                "금융·보험": 12, "생활서비스": 63}
+    st = CommerceStats(total_stores=sum(by_major.values()), radius_m=1000,
+                       by_major=by_major,
+                       essential_hits={"식료품": 27, "의료": 34, "교육": 41,
+                                       "금융": 12, "카페·음식": 121})
+    st.limitations.append(
+        "카드소비 금액은 공개 API 미제공 — 업소 수로만 활동성을 대리 측정 [LIMITATION]")
+    return st

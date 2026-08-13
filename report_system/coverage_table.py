@@ -85,7 +85,8 @@ def build(*, tx_count: int, sub_count: int, supply_items: int,
         elif layer.startswith("L5"):
             if income_measured:
                 cov = Coverage.CONDITIONAL
-                note = ("시군구 실측 중위소득으로 분포 중심 고정 — "
+                source = "시군구 실측 소득 통계"
+                note = ("실측 중위소득으로 분포 중심 고정 — "
                         "산포(σ)는 여전히 가정 [LIMITATION]")
             else:
                 cov = Coverage.SUBSTITUTE if income_model else Coverage.MISSING

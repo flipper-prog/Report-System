@@ -38,7 +38,9 @@ def _demo_layers() -> dict:
     return {"unsold": sd.build_unsold(), "migration": sd.build_migration(),
             "mobility": sd.build_mobility(), "transit": sd.build_transit(),
             "housing": sd.build_housing(),
-            "income_stats": sd.build_income_stats()}
+            "income_stats": sd.build_income_stats(),
+            "region_stats": sd.build_region_stats(),
+            "commerce": sd.build_commerce()}
 
 
 def cmd_generate(full: bool = False) -> int:
