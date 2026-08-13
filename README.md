@@ -24,7 +24,7 @@ python3 -m report_system verify     # 장부 전수 감사 — 봉인 해시 재
 python3 -m report_system backtest   # 백테스트 단독 실행 → out/backtest.md
 python3 -m report_system calibrate --config my_site.json   # 조정계수 교정 → out/calibration.md
 python3 -m report_system history --site SAMPLE-001   # 회차별 판정·지표 변화
-python3 tests/run_all.py            # 전체 테스트 (337건)
+python3 tests/run_all.py            # 전체 테스트 (349건)
 ```
 
 ### 실데이터 준비 절차
@@ -143,7 +143,7 @@ python3 tests/run_all.py            # 전체 테스트 (337건)
 | 원칙 | 구현 | 근거 |
 |------|------|------|
 | 전망은 봉인·대조된다 | `ledger.py` — UPDATE/DELETE 차단 트리거, sha256 봉인, coverage 산출. `verify` 가 봉인 해시를 전수 재계산하고 **실제 수정 시도가 막히는지까지** 확인 | 부록 E.2·E.3 (P0-2·P0-3) |
-| 표본이 지지하지 않는 수치는 내지 않는다 | 밴드 롤업(`pricing.py`), 청약 정성 전환(`subscription.py`), 치명 결함 중단(`validation.py`) | 5.4.5·5.10 (P1-5) |
+| 표본이 지지하지 않는 수치는 내지 않는다 | 밴드 롤업(`pricing.py`), 청약 정성 전환(`subscription.py`), 실부담 미산출(`affordability.py` — 모름을 0%로 적지 않음), 치명 결함 중단(`validation.py`) | 5.4.5·5.10 (P1-5) |
 | 검증되지 않은 문장은 나가지 않는다 | 린트 게이트(`claims.py`) — FORECAST는 '사용 가능' 불가, 금지 표현 차단 | 5.9·14.5 |
 | 신축 비교군은 분양권 우선 | 분양권 거래 가중(`pricing.py`) | P1-1 |
 | 현장이 분석을 교정한다 | 거절 사유 vs 판정 정합성, 방문객 거주지 vs 인구이동 유입 출발지(`feedback.py`) | 5.11.3 (P1-3) |
@@ -165,7 +165,7 @@ report_system/             파이프라인 패키지 (stdlib only)
   geo.py                   좌표 유틸 (직선거리·보행 보정 도보 시간)
   calibrate.py             조정계수 교정 (헤도닉 회귀 + 홀드아웃 검증, stdlib OLS)
   live.py                  설정 JSON + 커넥터 → 리포트
-tests/                     unittest 스위트 (337건) — run_all.py 로 일괄 실행
+tests/                     unittest 스위트 (349건) — run_all.py 로 일괄 실행
 examples/site_config.json  실데이터 실행 설정 예시
 proposal/                  사업 제안서 (md + docx 납품본 + 변환 스크립트)
 docs/                      설계검토보고서 (P0/P1/P2 진단)

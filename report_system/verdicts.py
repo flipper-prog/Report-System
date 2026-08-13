@@ -126,11 +126,18 @@ def demand_verdict(afford: list[AffordabilityResult],
         scores.append(commerce.essential_coverage)
 
     if afford:
-        base_shares = [a.scenarios[1]["eligible_share"] for a in afford if len(a.scenarios) > 1]
+        # 표본 미달로 산출되지 않은 값(None)은 0%가 아니라 '모름'이다 —
+        # 점수에 넣지 않고 사유를 밝힌다.
+        base_shares = [a.scenarios[1]["eligible_share"] for a in afford
+                       if len(a.scenarios) > 1
+                       and a.scenarios[1]["eligible_share"] is not None]
         if base_shares:
             share = mean(base_shares)
             scores.append(share)
             rationale.append(f"기준 금리에서 구매 가능 가구 비율 평균 {share:.0%} (실부담 시뮬레이션)")
+        else:
+            note = next((a.note for a in afford if a.note), "소득 표본 부족")
+            rationale.append(f"구매 가능 가구 비율: 미산출 — {note}")
 
     if sub.ok:
         rationale.append(

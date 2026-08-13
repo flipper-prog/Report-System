@@ -14,6 +14,11 @@ from .models import TypeSpec, total_acquisition_cost
 TERM_YEARS = 30
 EQUITY_INCOME_MULTIPLE = 4.0   # 가용 자기자본 ≈ 연소득 ×4 (가정, LIMITATION)
 
+#: 구매 가능 가구 비율을 수치로 제시하기 위한 최소 소득 표본.
+#: 이보다 적으면 비율을 내지 않는다(None). 모르는 것을 0%로 적으면 '수요가
+#: 전혀 없다'는 전혀 다른 주장이 되기 때문이다.
+MIN_INCOME_SAMPLES = 30
+
 
 def annuity_monthly(principal: float, annual_rate: float, years: int = TERM_YEARS) -> float:
     r = annual_rate / 12
@@ -41,6 +46,12 @@ class AffordabilityResult:
     ltv_cap: float
     dsr_cap: float
     scenarios: list[dict] = field(default_factory=list)
+    n_incomes: int = 0
+    note: str = ""
+
+    @property
+    def share_available(self) -> bool:
+        return self.n_incomes >= MIN_INCOME_SAMPLES
     # 각 원소: {"rate": .., "loan": .., "equity_required": .., "monthly": ..,
     #           "eligible_share": ..}
 
@@ -53,7 +64,11 @@ def simulate(
     rates: tuple[float, ...] = (0.030, 0.040, 0.055),
 ) -> AffordabilityResult:
     cost = total_acquisition_cost(t)
-    res = AffordabilityResult(t.name, cost, ltv_cap, dsr_cap)
+    res = AffordabilityResult(t.name, cost, ltv_cap, dsr_cap,
+                              n_incomes=len(incomes))
+    if not res.share_available:
+        res.note = (f"소득 표본 {len(incomes)}건(<{MIN_INCOME_SAMPLES}) — "
+                    "구매 가능 가구 비율 미산출 [LIMITATION]")
 
     for rate in rates:
         loan_ltv = cost * ltv_cap
@@ -70,6 +85,7 @@ def simulate(
             "loan": loan_ltv,
             "equity_required": cost - loan_ltv,
             "monthly": monthly_at_ltv,
-            "eligible_share": eligible / len(incomes) if incomes else 0.0,
+            "eligible_share": (eligible / len(incomes)
+                               if res.share_available else None),
         })
     return res

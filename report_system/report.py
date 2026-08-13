@@ -206,8 +206,13 @@ def generate_markdown(x: ReportInputs) -> str:
     add("|------|------|---------------|----------------|---------------------|")
     for a in x.afford:
         for s in a.scenarios:
+            share = ("미산출" if s['eligible_share'] is None
+                     else f"{s['eligible_share']:.0%}")
             add(f"| {a.type_name} | {s['rate']:.1%} | {_fmt_won(s['equity_required'])} | "
-                f"{s['monthly']/1e4:,.0f} | {s['eligible_share']:.0%} |")
+                f"{s['monthly']/1e4:,.0f} | {share} |")
+    for a in x.afford:
+        if a.note:
+            add(f"- {a.type_name}: {a.note}")
     add("")
     if x.income_stats is not None:
         add(f"*소득 분포 중심: **{x.income_stats.summary()}** "

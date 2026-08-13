@@ -93,6 +93,14 @@ def run(
 
     # 2) 거래 정제
     cr = clean(txs)
+    if not cr.kept:
+        # 비교 거래가 하나도 남지 않으면 가격·추세·환금성 전부가 성립하지 않는다.
+        # 억지로 진행해 빈 수치를 내는 대신 '분석 불가'로 멈춘다 (5.10.2).
+        dropped = sum(v for k, v in cr.summary.items() if k != "사용")
+        raise FatalInputError(
+            f"분석 중단: 정제 후 사용 가능한 비교 거래 0건 "
+            f"(입력 {len(txs)}건 · 정제 제외 {dropped}건). "
+            "비교단지 설정과 수집 기간을 확인하십시오.")
 
     # 3) 가격 밴드·시장 위치
     bands = quality_adjusted_bands(site, comps, cr.kept, asof, profile=profile,
@@ -123,8 +131,9 @@ def run(
                      "n_cases": sub_fc.n_cases})
 
     # 5-2) 분양가 결정 시뮬레이션 — "그래서 얼마로?"에 같은 근거로 답한다
+    # 밴드가 없어도 실행한다 — 권고하지 못한 '이유'를 보여 주는 것도 산출물이다.
     decision = None
-    if profile.subscription_applicable and bands and market_ppsm > 0:
+    if profile.subscription_applicable and market_ppsm > 0:
         decision = price_sweep(site, bands, market_ppsm, incomes, sub_history,
                                concurrent)
 
@@ -305,9 +314,13 @@ def _build_evidence(*, provenance, cr, bands, anchor, coef, jeonse, afford,
     else:
         ev.add_missing("전세가율", "전월세 데이터 미수집", "jeonse.analyze")
 
-    if afford:
+    if afford and not any(a.share_available for a in afford):
+        ev.add_missing("구매 가능 가구 비율 (기준 금리)",
+                       next((a.note for a in afford if a.note), "소득 표본 부족"),
+                       "affordability.simulate")
+    elif afford:
         shares = [a.scenarios[1]["eligible_share"] for a in afford
-                  if len(a.scenarios) > 1]
+                  if len(a.scenarios) > 1 and a.scenarios[1]["eligible_share"] is not None]
         if shares:
             ev.add("구매 가능 가구 비율 (기준 금리)",
                    f"{sum(shares)/len(shares):.0%}",

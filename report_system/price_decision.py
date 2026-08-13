@@ -138,7 +138,7 @@ def sweep(site: Site, bands: list[Band], market_ppsm: float,
         shares = []
         for t in types:
             r = simulate(t, incomes)
-            if len(r.scenarios) > 1:
+            if len(r.scenarios) > 1 and r.scenarios[1]["eligible_share"] is not None:
                 shares.append(r.scenarios[1]["eligible_share"])
         share = sum(shares) / len(shares) if shares else None
 
