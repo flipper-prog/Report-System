@@ -62,6 +62,7 @@ class ReportInputs:
     transit: object | None = None
     jeonse: object | None = None
     evidence: object | None = None
+    housing: object | None = None
 
     def __post_init__(self):
         for f in ("backtests", "coverage_rows", "model_cards", "drifts",
@@ -315,10 +316,11 @@ def generate_markdown(x: ReportInputs) -> str:
         ("L8 교통망·접근성", x.transit),
         ("L9 상권", x.commerce),
         ("L12 미분양", x.unsold),
+        ("L13 주택건설실적", x.housing),
     ]
     _present = [(n, o) for n, o in _layer_rows if o is not None]
     if _present:
-        add("## 7-3. 지역 기반 통계 (L1·L2·L3·L4·L7·L8·L9·L12)")
+        add("## 7-3. 지역 기반 통계 (L1~L4·L7~L9·L12·L13)")
         add("")
         add("| 레이어 | 요약 |")
         add("|--------|------|")

@@ -77,6 +77,7 @@ def run(
     rents: "list[RentRecord] | None" = None,   # L11 전월세
     coef: Coefficients = DEFAULT_COEF,      # 품질조정 계수(교정 시 교체)
     provenance: "list | None" = None,       # 수집 이력 → 근거원장 출처 연결
+    housing: object | None = None,          # L13 (주택건설실적)
 ) -> PipelineResult:
     # 1) 입력 검증 — 치명 결함 시 중단
     issues = (validate_site(site, asof) + validate_transactions(txs, asof)
@@ -165,7 +166,8 @@ def run(
         unsold_connected=unsold is not None,
         migration_connected=migration is not None,
         mobility_connected=mobility is not None,
-        transit_connected=transit is not None)
+        transit_connected=transit is not None,
+        housing_connected=housing is not None)
     span = (f"{min(t.trade_date for t in cr.kept)} ~ {max(t.trade_date for t in cr.kept)}"
             if cr.kept else "없음")
     bt_price = next((b for b in backtests if b.name.startswith("가격")), None)
@@ -191,7 +193,8 @@ def run(
                         commerce=commerce, migration=migration,
                         mobility=mobility, transit=transit)
     liq = analyze_liquidity(cr.kept, comps, asof, good_threshold=profile.turnover_good_pct)
-    v3 = supply_verdict(sa, site.total_units, liq, unsold=unsold)
+    v3 = supply_verdict(sa, site.total_units, liq, unsold=unsold,
+                        housing=housing)
     v4 = catalyst_verdict(cards)
     verdicts = [v1, v2, v3, v4]
 
@@ -232,7 +235,7 @@ def run(
         jeonse=jeonse_res, afford=afford, sub_fc=sub_fc, fid=fid, sa=sa,
         site=site, liq=liq, scen=scen, scen_id=scen_id, cards=cards,
         region_stats=region_stats, migration=migration, mobility=mobility,
-        transit=transit, commerce=commerce, unsold=unsold)
+        transit=transit, commerce=commerce, unsold=unsold, housing=housing)
 
     inputs = ReportInputs(
         site=site, asof=asof, clean=cr, dataset_meta=dataset_meta,
@@ -246,14 +249,14 @@ def run(
         profile_notes=list(profile.notes),
         region_stats=region_stats, commerce=commerce, unsold=unsold,
         migration=migration, mobility=mobility, transit=transit,
-        jeonse=jeonse_res, evidence=ledger_ev)
+        jeonse=jeonse_res, evidence=ledger_ev, housing=housing)
     return PipelineResult(generate_markdown(inputs), inputs, fid)
 
 
 def _build_evidence(*, provenance, cr, bands, anchor, coef, jeonse, afford,
                     sub_fc, fid, sa, site, liq, scen, scen_id, cards,
                     region_stats, migration, mobility, transit, commerce,
-                    unsold) -> EvidenceLedger:
+                    unsold, housing) -> EvidenceLedger:
     """리포트의 핵심 수치를 순서대로 등재한다.
 
     산출하지 못한 지표도 사유와 함께 남긴다 — 검토하지 않은 것과 표본이 없어
@@ -346,7 +349,9 @@ def _build_evidence(*, provenance, cr, bands, anchor, coef, jeonse, afford,
              ClaimGrade.CALCULATION, ("TAGO", "정류소")),
             ("생활 인프라 충족도", commerce, "connectors.commerce",
              ClaimGrade.FACT, ("상가업소", "소상공인")),
-            ("미분양 추세", unsold, "connectors.unsold", ClaimGrade.FACT, ())):
+            ("미분양 추세", unsold, "connectors.unsold", ClaimGrade.FACT, ()),
+            ("주택건설실적 추세", housing, "connectors.housing",
+             ClaimGrade.FACT, ("주택건설실적",))):
         if obj is None:
             ev.add_missing(label, "해당 레이어 미수집 (설정·인증 미지정)", method)
         else:

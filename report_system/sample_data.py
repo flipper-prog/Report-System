@@ -243,3 +243,20 @@ def build_transit() -> "TransitAccess":
         "직선거리 기반 도보 환산(보정계수 1.3) — 실제 보행 경로·고저차·신호는 "
         "미반영. 배차 간격·환승 편의도 평가에 포함되지 않음 [LIMITATION]")
     return acc
+
+
+def build_housing() -> "HousingSeries":
+    """주택건설실적 합성 표본 — 인허가가 완만히 늘어나는 국면."""
+    from .connectors.housing import HousingPoint, HousingSeries
+    rng = random.Random(SEED + 7)
+    pts = []
+    for i in range(24):
+        y, m = divmod(ASOF.year * 12 + ASOF.month - 1 - (23 - i), 12)
+        permit = 420 + i * 12 + rng.randint(-45, 45)
+        pts.append(HousingPoint(f"{y}-{m + 1:02d}", permit,
+                                start=int(permit * 0.78), sale=int(permit * 0.62),
+                                done=int(permit * 0.55)))
+    s = HousingSeries(points=pts, source="주택건설실적 합성 표본")
+    s.limitations.append(
+        "인허가는 시군구 단위 실적으로, 현장 생활권 공급과 범위가 다르다 [LIMITATION]")
+    return s

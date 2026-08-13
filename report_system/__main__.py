@@ -35,7 +35,8 @@ def _demo_layers() -> dict:
     리포트에 그대로 드러난다.
     """
     return {"unsold": sd.build_unsold(), "migration": sd.build_migration(),
-            "mobility": sd.build_mobility(), "transit": sd.build_transit()}
+            "mobility": sd.build_mobility(), "transit": sd.build_transit(),
+            "housing": sd.build_housing()}
 
 
 def cmd_generate(full: bool = False) -> int:

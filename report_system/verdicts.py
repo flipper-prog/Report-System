@@ -150,7 +150,8 @@ def demand_verdict(afford: list[AffordabilityResult],
 
 def supply_verdict(sa: SupplyAssessment, site_units: int,
                    liq: "LiquidityResult | None" = None,
-                   unsold: object | None = None) -> Verdict:
+                   unsold: object | None = None,
+                   housing: object | None = None) -> Verdict:
     ratio = sa.adjusted_units / site_units if site_units else 0
     if ratio >= 8:
         direction, strength = "부정", "강"
@@ -166,6 +167,18 @@ def supply_verdict(sa: SupplyAssessment, site_units: int,
         f"(발표 물량 {sa.nominal_units:,}세대) — 현장 세대수 대비 {ratio:.1f}배"]
 
     confidence = "보통"
+    if housing is not None and getattr(housing, "points", None):
+        rationale.append(f"주택건설실적(L13): {housing.summary()}")
+        cross = housing.pipeline_check(int(sa.nominal_units))
+        if cross:
+            rationale.append(f"→ 공급 목록 교차검증: {cross}")
+        y = housing.yoy_pct("permit")
+        # 인허가는 착공·분양의 선행 지표다. 지금 공급 부담이 낮아도 인허가가
+        # 급증했다면 중기 위험이 남아 있으므로 '긍정'으로 닫지 않는다.
+        if y is not None and y >= 30.0 and direction == "긍정":
+            direction, strength = "중립", "중"
+            rationale.append("→ 인허가 급증으로 중기 공급 압력 — 긍정 판정 보류")
+
     if unsold is not None and getattr(unsold, "latest", None) is not None:
         rationale.append(f"미분양(L12): {unsold.summary()}")
         t = unsold.trend_pct()

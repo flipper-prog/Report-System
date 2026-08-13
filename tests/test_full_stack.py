@@ -17,7 +17,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from report_system import sample_data as sd
-from report_system.connectors import commerce, migration, mobility, sgis, transit, unsold
+from report_system.connectors import (commerce, housing, migration, mobility,
+                                     sgis, transit, unsold)
 from report_system.connectors.base import Provenance
 from report_system.ledger import ForecastLedger
 from report_system.pricing import Coefficients
@@ -89,6 +90,7 @@ class TestFullStack(unittest.TestCase):
                                      _store("금융", "은행지점")]),
                 "k", 127.0, 37.5),
             unsold=unsold.load(str(tmp / "u.csv")),
+            housing=sd.build_housing(),
             migration=migration.load(str(tmp / "m.csv"), population=300_000),
             mobility=mobility.load(str(tmp / "od.csv"), focus="강남구", purpose="출근"),
             transit=transit.collect(
@@ -112,6 +114,7 @@ class TestFullStack(unittest.TestCase):
                         "품질조정 가격 밴드", "전세 기반 하방 점검",
                         "실부담 시뮬레이션", "청약 수요 전망", "모델 검증",
                         "확률조정 공급", "환금성", "지역 기반 통계",
+                        "주택건설실적",
                         "개발계획 촉매카드", "조기경보", "표현 린트", "근거원장"):
             self.assertIn(section, md, f"'{section}' 절이 누락됨")
 
@@ -122,6 +125,7 @@ class TestFullStack(unittest.TestCase):
         for token in ("지역 통계", "인구이동", "생활이동", "교통 접근성", "생활 인프라"):
             self.assertIn(token, joined2)
         self.assertTrue(any("미분양" in r for r in by["③"].rationale))
+        self.assertTrue(any("주택건설실적" in r for r in by["③"].rationale))
         self.assertTrue(by["④"].rationale)
 
     # ── 근거원장 ────────────────────────────────────────────────────────────

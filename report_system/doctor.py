@@ -111,6 +111,8 @@ OPTIONAL_LAYERS = [
     ("transit_radius_m", "L8 정류장 수집 반경", False),
     ("commerce_radius_m", "L9 상권 수집 반경", False),
     ("unsold_file", "L12 미분양", True),
+    ("housing_file", "L13 주택건설실적 (파일)", True),
+    ("kosis_housing", "L13 주택건설실적 (KOSIS API)", False),
 ]
 
 
@@ -125,7 +127,9 @@ def check_layers(cfg: dict[str, Any]) -> list[Check]:
     out: list[Check] = []
     # L3는 KOSIS API·파일 중 하나만 있으면 되므로, 다른 경로가 잡혀 있으면 묻지 않는다
     l3_alt = {"migration_file": "kosis_migration",
-              "kosis_migration": "migration_file"}
+              "kosis_migration": "migration_file",
+              "housing_file": "kosis_housing",
+              "kosis_housing": "housing_file"}
     for key, label, is_file in OPTIONAL_LAYERS:
         val = cfg.get(key)
         if not val:

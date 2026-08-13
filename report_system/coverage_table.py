@@ -52,7 +52,8 @@ def build(*, tx_count: int, sub_count: int, supply_items: int,
           migration_connected: bool = False,
           mobility_connected: bool = False,
           transit_connected: bool = False,
-          rent_connected: bool = False) -> list[LayerCoverage]:
+          rent_connected: bool = False,
+          housing_connected: bool = False) -> list[LayerCoverage]:
     """현재 파이프라인의 실제 수집 상태로 커버리지표를 생성한다."""
     out: list[LayerCoverage] = []
     for layer, source in LAYERS:
@@ -70,8 +71,13 @@ def build(*, tx_count: int, sub_count: int, supply_items: int,
             if unsold_connected:
                 note += " · 미분양 시계열 연동됨"
         elif layer.startswith("L13"):
-            cov = Coverage.CONDITIONAL if supply_items else Coverage.MISSING
-            note = f"설정 입력 {supply_items}건 — 인허가 통계 연동 시 자동화 가능"
+            if housing_connected:
+                cov = Coverage.AVAILABLE
+                note = (f"설정 입력 {supply_items}건 + 인허가 실적 연동 — "
+                        "공급 목록 교차검증됨")
+            else:
+                cov = Coverage.CONDITIONAL if supply_items else Coverage.MISSING
+                note = f"설정 입력 {supply_items}건 — 인허가 통계 연동 시 자동화 가능"
         elif layer.startswith("L14") or layer.startswith("L15"):
             cov = Coverage.CONDITIONAL if catalyst_items else Coverage.MISSING
             note = f"설정 입력 {catalyst_items}건 — 원문 링크 수기 등록"

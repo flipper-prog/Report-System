@@ -13,6 +13,8 @@ from datetime import date, timedelta
 from .connectors.applyhome import fetch_subscription_history
 from .connectors.base import Fetcher, api_key
 from .connectors.commerce import CommerceApiError, fetch_radius
+from .connectors.housing import HousingFormatError, fetch_kosis as fetch_housing_kosis
+from .connectors.housing import load as load_housing
 from .connectors.listings import ListingsFormatError, load as load_listings
 from .connectors.migration import (KosisApiError, MigrationFormatError,
                                    fetch_kosis, kosis_key)
@@ -240,6 +242,20 @@ def run_live(config_path: str, asof: date | None = None,
         except (TransitApiError, StationFormatError, RuntimeError) as e:
             print(f"[안내] 교통 접근성 수집 생략 — {e}")
 
+    # L13 주택건설실적 — KOSIS API(kosis_housing) 또는 파일(housing_file)
+    housing = None
+    if cfg.get("kosis_housing"):
+        try:
+            housing = fetch_housing_kosis(fetcher, kosis_key(), dict(cfg["kosis_housing"]))
+        except KosisApiError as e:
+            print(f"[안내] 주택건설실적(KOSIS) 수집 생략 — {e}")
+    if housing is None and cfg.get("housing_file"):
+        try:
+            housing = load_housing(cfg["housing_file"],
+                                   until=f"{asof.year}-{asof.month:02d}")
+        except HousingFormatError as e:
+            print(f"[안내] 주택건설실적 수집 생략 — {e}")
+
     result = run(
         site=_site_from(cfg),
         comps=comps,
@@ -264,7 +280,7 @@ def run_live(config_path: str, asof: date | None = None,
         migration=migration, mobility=mobility, transit=transit,
         rents=rents,
         coef=load_coefficients(cfg.get("coefficients_file", "out/coefficients.json")),
-        provenance=fetcher.provenance)
+        provenance=fetcher.provenance, housing=housing)
 
     pathlib.Path("out").mkdir(exist_ok=True)
     pathlib.Path("out/provenance.json").write_text(

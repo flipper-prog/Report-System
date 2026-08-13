@@ -23,7 +23,7 @@ python3 -m report_system coverage   # 예측 이력 장부 적중률
 python3 -m report_system backtest   # 백테스트 단독 실행 → out/backtest.md
 python3 -m report_system calibrate --config my_site.json   # 조정계수 교정 → out/calibration.md
 python3 -m report_system history --site SAMPLE-001   # 회차별 판정·지표 변화
-python3 tests/run_all.py            # 전체 테스트 (270건)
+python3 tests/run_all.py            # 전체 테스트 (293건)
 ```
 
 ### 실데이터 준비 절차
@@ -63,6 +63,7 @@ python3 tests/run_all.py            # 전체 테스트 (270건)
 | L11 전월세 실거래 | `rent` (국토부 E01-R) | 〃 | `collect_rent`(기본 on), `rent_months` |
 | L12 청약 | `applyhome` (청약홈 E02) | 〃 | `subscription_regions` |
 | L12 미분양 | `unsold` (파일) | — | `unsold_file` |
+| L13 주택건설실적 | `housing` (KOSIS 또는 파일) | `KOSIS_API_KEY` (API 경로만) | `kosis_housing` 또는 `housing_file` |
 | L1·L2·L4 인구·가구·사업체 | `sgis` (통계청) | `SGIS_CONSUMER_KEY`/`SECRET` | `sgis_adm_cd`, `sgis_years` |
 | L3 인구이동 | `migration` (KOSIS 또는 파일) | `KOSIS_API_KEY` (API 경로만) | `kosis_migration` 또는 `migration_file`, `region_population` |
 | L7 생활이동·O/D | `mobility` (파일) | — | `mobility_file`, `mobility_focus`, `mobility_purpose` |
@@ -93,7 +94,7 @@ python3 tests/run_all.py            # 전체 테스트 (270건)
 | 응답 형식 | 실거래는 신형(`aptNm`)·구형(`아파트`) 태그 모두 파싱. 해제 거래(`cdealType=O`)는 정제 단계에서 제거·집계 |
 | 미제공 필드 | 청약홈은 가격 갭·동시 공급을 제공하지 않음 → 해당 조건을 매칭에서 제외하고 리포트에 LIMITATION 표기 |
 | 매물·호가 | 무료 공개 API 없음 → `listings_file`(CSV/JSON) 로 적재. 스키마: `asof,listings,ask_ppsm,traded_ppsm`. 부적합 행은 사유와 함께 제외되고 기준일 이후 관측은 자동 배제 (예시: `examples/listings_sample.csv`) |
-| 파일 적재 스키마 | 인구이동 `period,moved_in,moved_out[,from_region]` · O/D `origin,destination,trips[,purpose]` · 역 좌표 `name,lat,lng[,lines]` · 미분양 `month,unsold[,after_done]` (예시 파일 모두 `examples/`) |
+| 파일 적재 스키마 | 인구이동 `period,moved_in,moved_out[,from_region]` · O/D `origin,destination,trips[,purpose]` · 역 좌표 `name,lat,lng[,lines]` · 미분양 `month,unsold[,after_done]` · 주택건설실적 `period,permit[,start,sale,done]` (예시 파일 모두 `examples/`) |
 | 접근성 표현 통제 | 최근접역이 도보 10분 이내일 때만 '도보 n분' 문장이 생성된다. 그 밖에는 문장을 만들지 않고 리포트에 **'역세권 표현 사용 불가'** 와 실측 거리를 표기한다 |
 
 ## 아키텍처
@@ -120,6 +121,7 @@ python3 tests/run_all.py            # 전체 테스트 (270건)
   │    └→ calibrate 조정계수 헤도닉 회귀 추정 → 홀드아웃 검증 통과 시에만 교체
   ├→ liquidity   환금성(회전율·가격분산·거래간격) → 판정 ③ 강화
   ├→ supply      확률조정 공급(단계별 실현 가능성 가중)
+  │    └→ housing 인허가 실적으로 공급 목록 교차검증 + 중기 압력 선행 신호
   ├→ catalyst    성숙도 엔진(검토/추진/확정 단계 → 광고 취급 등급, 촉매카드)
   ├→ alerts      조기경보(개발계획·시장·공급 신호 스냅숏 비교)
   ├→ competitor  경쟁 현장 모니터링(가격·혜택·잔여 변동, 수집 신선도 경고)
@@ -158,7 +160,7 @@ report_system/             파이프라인 패키지 (stdlib only)
   geo.py                   좌표 유틸 (직선거리·보행 보정 도보 시간)
   calibrate.py             조정계수 교정 (헤도닉 회귀 + 홀드아웃 검증, stdlib OLS)
   live.py                  설정 JSON + 커넥터 → 리포트
-tests/                     unittest 스위트 (270건) — run_all.py 로 일괄 실행
+tests/                     unittest 스위트 (293건) — run_all.py 로 일괄 실행
 examples/site_config.json  실데이터 실행 설정 예시
 proposal/                  사업 제안서 (md + docx 납품본 + 변환 스크립트)
 docs/                      설계검토보고서 (P0/P1/P2 진단)
@@ -172,6 +174,7 @@ out/                       생성 산출물·캐시·장부 (git 미추적)
 | 매매(E01)·전월세(E01-R)·청약(E02) | **구현 완료** — 캐시·재시도·수집이력 포함. 전월세로 전세가율·전월세전환율 산출 |
 | 매물·호가 (P1-2 선행 신호) | **파일 수집 구현** — 무료 공개 API 부재로 CSV/JSON 적재 방식. `listings_file` 지정 시 활성화 |
 | 인구·가구·사업체(L1·L2·L4)·인구이동(L3)·접근성(L8)·상권(L9) | **구현 완료** — 각 커넥터의 공간 해상도·환산 한계는 리포트에 병기 |
+| 공급 파이프라인 (L13) | **인허가 실적 연동** — 설정 공급 목록을 시군구 인허가와 교차검증하고, 인허가 급증 시 중기 공급 압력을 판정 ③에 반영 |
 | 생활이동·O/D (L7) | **파일 적재 구현** — KTDB·통신사 자료는 계약·승인 대상. 파일 확보 시 즉시 활성화 |
 | 소득·구매력 (L5) | 공공 대체 로그정규 근사 — 설정의 분포 파라미터 기반, LIMITATION 표기 |
 | 조정계수(연식·층·시점) | **교정 엔진 구현** — `calibrate` 가 헤도닉 회귀로 추정하고 홀드아웃 검증을 통과할 때만 교체. 미교정 상태는 모델 카드에 '예시값'으로 표기 |
