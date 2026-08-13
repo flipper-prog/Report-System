@@ -68,6 +68,7 @@ class ReportInputs:
     salespack: object | None = None
     funnel: object | None = None
     robustness: object | None = None
+    lag: object | None = None
 
     def __post_init__(self):
         for f in ("backtests", "coverage_rows", "model_cards", "drifts",
@@ -161,6 +162,17 @@ def generate_markdown(x: ReportInputs) -> str:
     for k, v in x.clean.summary.items():
         add(f"| {k} | {v} |")
     add("")
+
+    # 3-2. 신고지연 보정
+    if x.lag is not None:
+        add("### 3-2. 신고지연 보정 — 최근 월은 아직 다 들어오지 않았습니다")
+        add("")
+        add("*거래신고는 계약일로부터 30일 이내에 하면 되고, 공개 자료 반영까지 "
+            "며칠이 더 걸립니다. 따라서 수집 시점의 최근 월은 항상 과소집계 "
+            "상태입니다. 이 월을 그대로 두면 추세의 끝점이 흔들리고 거래 회전율이 "
+            "낮게 나오므로, 신고가 마감된 월만으로 산출합니다.*")
+        add("")
+        add(x.lag.as_markdown())
 
     # 4. 가격
     add("## 4. 품질조정 가격 밴드와 시장 위치")
@@ -268,7 +280,9 @@ def generate_markdown(x: ReportInputs) -> str:
             add(f"- 시장 추세: 전체 {x.trend.slope_pct_per_year:+.1f}%/년, "
                 f"최근 {x.trend.recent_slope_pct_per_year:+.1f}%/년"
                 f"{' — **국면 전환 신호**' if x.trend.regime_shift else ''} "
-                f"(관측 {x.trend.n_months}개월)")
+                f"(관측 {x.trend.n_months}개월"
+                + (f", 신고 미완결 {len(x.trend.excluded_months)}개월 제외"
+                   if x.trend.excluded_months else "") + ")")
             add("")
         add("| 시나리오 | 연 변화율 | 기간 누적 | 기간말 ㎡당 | 전제 |")
         add("|----------|-----------|-----------|-------------|------|")

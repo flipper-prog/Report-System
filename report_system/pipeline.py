@@ -21,6 +21,7 @@ from .funnel import FunnelSnapshot, diagnose as diagnose_funnel
 from .ledger import ForecastLedger
 from .liquidity import analyze as analyze_liquidity
 from .jeonse import analyze as analyze_jeonse
+from .lag import assess as assess_lag
 from .models import (AdGrade, CatalystPlan, Claim, ClaimGrade, Comparable,
                      DatasetMeta, FieldFeedback, ListingSnapshot, RentRecord,
                      Site, SubscriptionRecord, SupplyItem, Transaction,
@@ -107,6 +108,10 @@ def run(
             f"(입력 {len(txs)}건 · 정제 제외 {dropped}건). "
             "비교단지 설정과 수집 기간을 확인하십시오.")
 
+    # 2-2) 신고지연 판정 — 최근 월은 아직 다 들어오지 않았다 (추세·회전율에서 제외)
+    lag_res = assess_lag(cr.kept, asof)
+    skip_months = set(lag_res.provisional)
+
     # 3) 가격 밴드·시장 위치
     bands = quality_adjusted_bands(site, comps, cr.kept, asof, profile=profile,
                                    coef=coef)
@@ -149,7 +154,7 @@ def run(
     cards = [assess(p) for p in catalyst_plans_new]
 
     # 7-2) 시계열 추세 → 조건부 가격 시나리오 → 장부 봉인
-    trend = monthly_trend(cr.kept)
+    trend = monthly_trend(cr.kept, exclude_months=skip_months)
     anchor = median([b.q50 for b in bands if b.level == "타입"]) if bands else 0.0
     scen = None
     scen_id = ""
@@ -215,7 +220,9 @@ def run(
     v2 = demand_verdict(afford, sub_fc, region_stats=region_stats,
                         commerce=commerce, migration=migration,
                         mobility=mobility, transit=transit)
-    liq = analyze_liquidity(cr.kept, comps, asof, good_threshold=profile.turnover_good_pct)
+    liq = analyze_liquidity(cr.kept, comps, asof,
+                            good_threshold=profile.turnover_good_pct,
+                            end_month=lag_res.last_complete)
     v3 = supply_verdict(sa, site.total_units, liq, unsold=unsold,
                         housing=housing)
     v4 = catalyst_verdict(cards)
@@ -285,6 +292,7 @@ def run(
         region_stats=region_stats, migration=migration, mobility=mobility,
         transit=transit, commerce=commerce, unsold=unsold, housing=housing,
         income_stats=income_stats, decision=decision, robust=robust,
+        lag=lag_res,
         competitor_alerts=[a for a in alerts if a.category == "경쟁 현장"])
 
     inputs = ReportInputs(
@@ -301,14 +309,14 @@ def run(
         migration=migration, mobility=mobility, transit=transit,
         jeonse=jeonse_res, evidence=ledger_ev, housing=housing,
         income_stats=income_stats, price_decision=decision,
-        salespack=pack, funnel=funnel_dx, robustness=robust)
+        salespack=pack, funnel=funnel_dx, robustness=robust, lag=lag_res)
     return PipelineResult(generate_markdown(inputs), inputs, fid)
 
 
 def _build_evidence(*, provenance, cr, bands, anchor, coef, jeonse, afford,
                     sub_fc, fid, sa, site, liq, scen, scen_id, cards,
                     region_stats, migration, mobility, transit, commerce,
-                    unsold, housing, income_stats, decision, robust,
+                    unsold, housing, income_stats, decision, robust, lag,
                     competitor_alerts) -> EvidenceLedger:
     """리포트의 핵심 수치를 순서대로 등재한다.
 
@@ -319,6 +327,21 @@ def _build_evidence(*, provenance, cr, bands, anchor, coef, jeonse, afford,
     sale_src = ev.find("매매 실거래", "RTMSDataSvcAptTrade", "E01)")
     rent_src = ev.find("전월세")
     sub_src = ev.find("청약")
+
+    if lag is not None:
+        if lag.provisional:
+            ev.add("신고지연 보정", lag.summary(),
+                   f"lag.assess (신고기한 {lag.settle_days}일 경과분까지 완결)",
+                   ClaimGrade.CALCULATION, sale_src,
+                   n=len(lag.complete_months),
+                   limitations=list(lag.limitations))
+        else:
+            ev.add("신고지연 보정", lag.summary(),
+                   f"lag.assess (신고기한 {lag.settle_days}일 경과분까지 완결)",
+                   ClaimGrade.CALCULATION, sale_src,
+                   n=len(lag.complete_months),
+                   limitations=["미완결 월 없음 — 수집 기준일이 최근 계약보다 "
+                                "충분히 뒤에 있음"])
 
     ev.add("정제 후 사용 거래", f"{len(cr.kept):,}건",
            f"transactions.clean (룰 {RULES_VERSION})", ClaimGrade.FACT,

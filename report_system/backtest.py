@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 
+from .lag import SETTLE_DAYS, settle_date
 from .models import Comparable, Site, SubscriptionRecord, Transaction
 from .pricing import (DEFAULT_COEF, MAX_DIST_M, MIN_SAMPLES_BAND,
                       Coefficients, adjusted_ppsm, quality_adjusted_bands)
@@ -83,16 +84,25 @@ def _add_months(d: date, m: int) -> date:
 def backtest_price_bands(site: Site, comps: dict[str, Comparable],
                          txs: list[Transaction], cutoffs: list[date],
                          horizon_months: int = 6,
-                         coef: Coefficients = DEFAULT_COEF) -> BacktestReport:
+                         coef: Coefficients = DEFAULT_COEF,
+                         settle_days: int = SETTLE_DAYS) -> BacktestReport:
+    """settle_days: cutoff 시점에 **실제로 신고되어 있었을** 거래만 학습에 쓴다.
+
+    지금 돌아보면 과거 한 달치도 다 들어와 있지만, 그 시점의 운영에서는
+    보이지 않았다. 이를 무시하면 백테스트가 실시간 운영보다 좋게 나오고,
+    검증이 운영을 대변하지 못한다.
+    """
     rep = BacktestReport("가격 밴드 (품질조정 q25~q75)", PRICE_BAND_NOMINAL)
     kept = clean(txs).kept
 
     for cutoff in cutoffs:
-        past = [t for t in kept if t.trade_date <= cutoff]
+        visible = settle_date(cutoff, settle_days)
+        past = [t for t in kept if t.trade_date <= visible]
         future_end = _add_months(cutoff, horizon_months)
         future = [t for t in kept if cutoff < t.trade_date <= future_end]
         if len(past) < MIN_SAMPLES_BAND or not future:
-            rep.skipped.append(f"{cutoff}: 과거 {len(past)}건/미래 {len(future)}건")
+            rep.skipped.append(
+                f"{cutoff}: 신고완결 과거 {len(past)}건/미래 {len(future)}건")
             continue
 
         bands = quality_adjusted_bands(site, comps, past, cutoff, coef=coef)

@@ -6,7 +6,7 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from statistics import median
 
@@ -25,6 +25,8 @@ class TrendResult:
     slope_pct_per_year: float      # 연 %
     recent_slope_pct_per_year: float
     n_months: int
+    #: 신고지연으로 미완결이라 집계에서 제외한 월 (lag.assess 판정)
+    excluded_months: list[int] = field(default_factory=list)
 
     @property
     def regime_shift(self) -> bool:
@@ -46,17 +48,29 @@ def _ols_slope(xs: list[float], ys: list[float]) -> float:
     return sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / denom
 
 
-def monthly_trend(txs: list[Transaction], recent_months: int = 6) -> TrendResult:
+def monthly_trend(txs: list[Transaction], recent_months: int = 6,
+                  exclude_months: "set[int] | None" = None) -> TrendResult:
+    """월별 중위 ㎡단가와 추세.
+
+    exclude_months: 신고지연으로 미완결인 월(lag.assess 판정). OLS에서 끝점은
+    레버리지가 가장 크므로, 표본이 덜 찬 최근 월을 그대로 두면 추세 방향이
+    데이터가 아니라 수집 시점에 의해 흔들린다.
+    """
+    skip = exclude_months or set()
     buckets: dict[int, list[float]] = {}
     for t in txs:
         if t.canceled or t.area_m2 <= 0:
             continue
-        buckets.setdefault(month_key(t.trade_date), []).append(t.price / t.area_m2)
+        mk = month_key(t.trade_date)
+        if mk in skip:
+            continue
+        buckets.setdefault(mk, []).append(t.price / t.area_m2)
 
     months = sorted(buckets)
     values = [median(buckets[m]) for m in months]
+    excluded = sorted(skip)
     if not months:
-        return TrendResult([], [], 0.0, 0.0, 0.0, 0)
+        return TrendResult([], [], 0.0, 0.0, 0.0, 0, excluded)
 
     xs = [float(m - months[0]) for m in months]
     slope = _ols_slope(xs, values)
@@ -68,4 +82,5 @@ def monthly_trend(txs: list[Transaction], recent_months: int = 6) -> TrendResult
     r_level = median(values[-k:]) if k else level
     r_pct_year = (r_slope * 12 / r_level * 100) if r_level else 0.0
 
-    return TrendResult(months, values, slope, pct_year, r_pct_year, len(months))
+    return TrendResult(months, values, slope, pct_year, r_pct_year, len(months),
+                       excluded)

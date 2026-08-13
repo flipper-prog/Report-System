@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from statistics import median
 
+from .lag import month_label
 from .models import Comparable, Transaction
 
 
@@ -52,12 +53,21 @@ class LiquidityResult:
 
 def analyze(txs: list[Transaction], comps: dict[str, Comparable],
             asof: date, window_months: int = 24,
-            good_threshold: float = 6.0) -> LiquidityResult:
-    cutoff_key = (asof.year * 12 + asof.month) - window_months
+            good_threshold: float = 6.0,
+            end_month: "int | None" = None) -> LiquidityResult:
+    """end_month: 집계 종료 월(month_key). 신고지연으로 미완결인 월을 창에
+    포함하면 분자(거래건수)만 덜 차고 분모(기간)는 그대로여서 회전율이
+    체계적으로 낮게 나온다 — `lag.assess().last_complete` 를 넘긴다."""
+    last = end_month if end_month is not None else (asof.year * 12 + asof.month)
+    cutoff_key = last - window_months
     recent = [t for t in txs
-              if not t.canceled and (t.trade_date.year * 12 + t.trade_date.month) > cutoff_key]
+              if not t.canceled
+              and cutoff_key < (t.trade_date.year * 12 + t.trade_date.month) <= last]
 
     lims: list[str] = ["전세 유동성·매물 체류일수는 커넥터 미구현으로 미반영 [LIMITATION]"]
+    if end_month is not None and end_month < (asof.year * 12 + asof.month):
+        lims.append(f"신고 미완결 월 제외 — 집계 종료 {month_label(end_month)} "
+                    f"기준 {window_months}개월 창")
     if not recent:
         return LiquidityResult(None, None, None, 0, window_months, good_threshold, lims)
 

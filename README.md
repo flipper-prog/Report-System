@@ -24,7 +24,7 @@ python3 -m report_system verify     # 장부 전수 감사 — 봉인 해시 재
 python3 -m report_system backtest   # 백테스트 단독 실행 → out/backtest.md
 python3 -m report_system calibrate --config my_site.json   # 조정계수 교정 → out/calibration.md
 python3 -m report_system history --site SAMPLE-001   # 회차별 판정·지표 변화
-python3 tests/run_all.py            # 전체 테스트 (443건)
+python3 tests/run_all.py            # 전체 테스트 (476건)
 ```
 
 ### 실데이터 준비 절차
@@ -131,6 +131,8 @@ python3 -m report_system verify                           # ⑤ 장부 감사
 입력(현장·거래·청약·공급·계획·소득·현장반응)
   → validation   입력 검증 6종 + 치명 결함 시 분석 중단
   → transactions 거래 정제(취소·중복·이상·특수)          [정제 내역 리포트 표기]
+  → lag          신고지연 보정(계약일+30일 기한) — 미완결 월을 추세·회전율에서
+                 제외하고 제외 내역을 표기. 백테스트에도 같은 지연 적용
   → quality      데이터 적합성 5축 → A~D (D는 사용 금지)
   ├→ pricing     품질조정 가격 밴드(타입·층구간, 분양권 우선 비교군, 표본 미달 시 롤업)
   ├→ jeonse      전세가율·전월세전환율(하방 완충 두께) → 판정 ① 보강
@@ -173,7 +175,8 @@ python3 -m report_system verify                           # ⑤ 장부 감사
 | 접근성은 주장이 아니라 좌표로 말한다 | 최근접역 도보 10분 이내에서만 문장 생성(`transit.py`·`pipeline.py`) | 5.9 광고 표현 통제 |
 | 가격의 하방은 전세가 말한다 | 전세가율·전월세전환율(`jeonse.py`) — 갱신 계약 제외, 표본 미달 시 미산출 | 5.4 가격 검증 |
 | 단일 AI 점수로 합치지 않는다 | 4개 독립 판정(`verdicts.py`) | 5.8 |
-| 예측은 사후 검증된다 | 시점 분리 백테스트(`backtest.py`) — 운영과 동일 함수 호출 | 5.4.2·E.2 |
+| 예측은 사후 검증된다 | 시점 분리 백테스트(`backtest.py`) — 운영과 동일 함수 호출. cutoff 시점에 **아직 신고되지 않았을 거래는 학습에서 제외**하여 실시간 운영보다 좋게 나오는 낙관 편향을 제거 | 5.4.2·E.2 |
+| 최근 월은 아직 다 들어오지 않았다 | 신고지연 보정(`lag.py`) — 법정 신고기한이라는 결정적 규칙으로 미완결 월을 판정해 추세·회전율에서 제외. 거래량 급감은 포아송 변동 범위를 넘을 때만 표시(무작위 변동을 결함으로 오인하지 않음) | 5.4.2 데이터 품질 |
 | 계수는 검증을 통과할 때만 바뀐다 | 헤도닉 회귀 + 홀드아웃 잔차 분산(`calibrate.py`) — 유의성·부호·범위 게이트 통과 후에도 검증 구간이 개선돼야 채택 | 5.4.2 |
 | 상품이 다르면 모델도 다르다 | 상품 프로파일(`profiles.py`) — 비교군·표본·청약 적용 분리 | P2-2 |
 | 판정은 직전 회차와 비교된다 | 실행 이력(`runstore.py`) — 판정별 관련 지표만 델타 표기 | 5.4.5 '변화' |
@@ -191,7 +194,7 @@ report_system/             파이프라인 패키지 (stdlib only)
   geo.py                   좌표 유틸 (직선거리·보행 보정 도보 시간)
   calibrate.py             조정계수 교정 (헤도닉 회귀 + 홀드아웃 검증, stdlib OLS)
   live.py                  설정 JSON + 커넥터 → 리포트
-tests/                     unittest 스위트 (443건) — run_all.py 로 일괄 실행
+tests/                     unittest 스위트 (476건) — run_all.py 로 일괄 실행
 examples/site_config.json  실데이터 실행 설정 예시
 proposal/                  사업 제안서 (md + docx 납품본 + 변환 스크립트)
 docs/                      설계검토보고서 (P0/P1/P2 진단)
