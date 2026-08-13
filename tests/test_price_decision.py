@@ -133,6 +133,14 @@ class TestRecommendation(unittest.TestCase):
         self.assertIsNone(dec.recommended)
         self.assertIn("미달 위험을 산출할 수 없음", dec.reason)
 
+    def test_no_recommendation_without_band_evidence(self):
+        """비교 밴드가 없으면 가격 위치를 말할 수 없다 — 권고하지 않는다."""
+        dec = sweep(self.site, [], self.mkt, self.incomes, self.hist, 900)
+        self.assertTrue(all(not o.has_band for o in dec.options))
+        self.assertTrue(all(not o.within_band for o in dec.options))
+        self.assertIsNone(dec.recommended)
+        self.assertIn("비교 밴드 표본이 부족", dec.reason)
+
     def test_markdown_marks_the_recommended_row(self):
         md = self._sweep().as_markdown()
         self.assertEqual(md.count("←권고"), 1)

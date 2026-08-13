@@ -39,6 +39,10 @@ SHORTFALL_LIMIT = 0.20
 #: 구매 가능 가구 비율이 이보다 낮으면 경고를 붙인다(제외하지는 않는다)
 THIN_DEMAND = 0.10
 
+#: 비교 밴드가 없을 때의 표기. 이 상태에서는 가격 위치를 판단할 수 없으므로
+#: 권고 후보에서 제외한다 — 근거 없이 가격을 권하지 않는다.
+NO_BAND = "표본 부족"
+
 
 @dataclass
 class PriceOption:
@@ -56,8 +60,14 @@ class PriceOption:
         return self.forecast.shortfall_prob if self.forecast.ok else None
 
     @property
+    def has_band(self) -> bool:
+        """비교 밴드 근거가 있는가. 없으면 가격 위치를 말할 수 없다."""
+        return self.band_label != NO_BAND
+
+    @property
     def within_band(self) -> bool:
-        return "상단" not in self.band_label
+        """밴드 상단을 넘지 않는가. 밴드 자체가 없으면 참이라고 하지 않는다."""
+        return self.has_band and "상단" not in self.band_label
 
 
 @dataclass
@@ -121,7 +131,7 @@ def sweep(site: Site, bands: list[Band], market_ppsm: float,
                 continue
             p = total_acquisition_cost(t) / t.area_m2
             labels.append("하단" if p <= b.q25 else ("내" if p <= b.q75 else "상단"))
-        band_label = ("표본 부족" if not labels
+        band_label = (NO_BAND if not labels
                       else ("상단" if "상단" in labels
                             else ("하단" if all(l == "하단" for l in labels) else "내")))
 
@@ -160,10 +170,16 @@ def sweep(site: Site, bands: list[Band], market_ppsm: float,
         if r.notes:
             dec.reason += " (" + " · ".join(r.notes) + ")"
     else:
-        no_fc = all(o.shortfall is None for o in dec.options)
-        dec.reason = ("유사 청약 사례가 부족해 미달 위험을 산출할 수 없음 — "
-                      "가격 권고를 제시하지 않음" if no_fc else
-                      "두 조건을 동시에 만족하는 후보 없음 — 원가·상품 구성 재검토 필요")
+        # 권고하지 않는 사유를 구분해서 말한다 — 세 경우의 대응이 서로 다르다.
+        if not any(o.has_band for o in dec.options):
+            dec.reason = ("비교 밴드 표본이 부족해 가격 위치를 판단할 수 없음 — "
+                          "근거 없이 가격을 권고하지 않음")
+        elif all(o.shortfall is None for o in dec.options):
+            dec.reason = ("유사 청약 사례가 부족해 미달 위험을 산출할 수 없음 — "
+                          "가격 권고를 제시하지 않음")
+        else:
+            dec.reason = ("두 조건을 동시에 만족하는 후보 없음 — "
+                          "원가·상품 구성 재검토 필요")
 
     dec.limitations = [
         "권고는 위 두 조건에 따른 규칙 결과이며 예측이 아니다. 조건을 바꾸면 "
