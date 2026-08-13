@@ -28,6 +28,7 @@ from .connectors.molit import (build_comparables, fetch_range,
 from .connectors.rent import RentApiError
 from .connectors.rent import fetch_range as fetch_rent_range
 from .connectors.rent import to_records as to_rent_records
+from .calibrate import load as load_coefficients
 from .ledger import ForecastLedger
 from .runstore import RunStore
 from .models import (CatalystPlan, DatasetMeta, FieldFeedback,
@@ -261,7 +262,8 @@ def run_live(config_path: str, asof: date | None = None,
         store=RunStore(store_path),
         region_stats=region_stats, commerce=commerce, unsold=unsold,
         migration=migration, mobility=mobility, transit=transit,
-        rents=rents)
+        rents=rents,
+        coef=load_coefficients(cfg.get("coefficients_file", "out/coefficients.json")))
 
     pathlib.Path("out").mkdir(exist_ok=True)
     pathlib.Path("out/provenance.json").write_text(

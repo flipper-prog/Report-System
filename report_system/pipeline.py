@@ -23,7 +23,8 @@ from .models import (AdGrade, CatalystPlan, Claim, ClaimGrade, Comparable,
                      DatasetMeta, FieldFeedback, ListingSnapshot, RentRecord,
                      Site, SubscriptionRecord, SupplyItem, Transaction,
                      total_acquisition_cost)
-from .pricing import market_positions, quality_adjusted_bands
+from .pricing import (DEFAULT_COEF, Coefficients, market_positions,
+                      quality_adjusted_bands)
 from .profiles import applicability_note, get as get_profile
 from .report import ReportInputs, generate_markdown
 from .runstore import RunSnapshot, RunStore, describe_change
@@ -72,6 +73,7 @@ def run(
     mobility: object | None = None,         # L7 (생활이동·O/D)
     transit: object | None = None,          # L8 (교통망·접근성)
     rents: "list[RentRecord] | None" = None,   # L11 전월세
+    coef: Coefficients = DEFAULT_COEF,      # 품질조정 계수(교정 시 교체)
 ) -> PipelineResult:
     # 1) 입력 검증 — 치명 결함 시 중단
     issues = validate_site(site, asof) + validate_transactions(txs, asof)
@@ -86,7 +88,8 @@ def run(
     cr = clean(txs)
 
     # 3) 가격 밴드·시장 위치
-    bands = quality_adjusted_bands(site, comps, cr.kept, asof, profile=profile)
+    bands = quality_adjusted_bands(site, comps, cr.kept, asof, profile=profile,
+                                   coef=coef)
     positions = market_positions(site, bands)
 
     # 4) 실부담
@@ -141,7 +144,8 @@ def run(
         first = min(t.trade_date for t in cr.kept)
         cuts = quarterly_cutoffs(first, asof)
         if cuts:
-            backtests.append(backtest_price_bands(site, comps, cr.kept, cuts))
+            backtests.append(backtest_price_bands(site, comps, cr.kept, cuts,
+                                                  coef=coef))
     if sub_history:
         backtests.append(backtest_subscription(sub_history))
 
@@ -162,7 +166,7 @@ def run(
             if cr.kept else "없음")
     bt_price = next((b for b in backtests if b.name.startswith("가격")), None)
     bt_sub = next((b for b in backtests if b.name.startswith("청약")), None)
-    cards_md = [price_band_card(len(cr.kept), span, bt_price),
+    cards_md = [price_band_card(len(cr.kept), span, bt_price, coef),
                 subscription_card(sub_fc.n_cases, bt_sub)]
     if scen:
         cards_md.append(scenario_card(scen.horizon_months))

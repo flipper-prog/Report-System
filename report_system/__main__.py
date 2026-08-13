@@ -188,6 +188,62 @@ def cmd_live(config: str, asof: str | None, offline: bool) -> int:
     return 0
 
 
+def cmd_calibrate(config: str | None, asof: str | None, offline: bool) -> int:
+    """조정계수 교정 — 실데이터 회귀 + 백테스트 검증 후 채택 여부 결정.
+
+    --config 없이 실행하면 합성 표본으로 동작을 시연한다(계수는 저장하지 않음).
+    """
+    from .calibrate import CalibrationError, calibrate, save
+
+    OUT.mkdir(exist_ok=True)
+    if config:
+        from .connectors.base import Fetcher
+        from .connectors.molit import build_comparables, fetch_range, to_transactions
+        from .live import load_config
+        from .connectors.base import api_key
+
+        cfg = load_config(config)
+        at = date.fromisoformat(asof) if asof else date.fromisoformat(cfg["asof"])
+        fetcher = Fetcher(cache_dir=str(OUT / "cache"), offline=offline)
+        raws = fetch_range(fetcher, api_key(), cfg["lawd_cd"], at,
+                           months=int(cfg.get("months", 24)))
+        comp_cfg = cfg["comparables"]
+        comps = build_comparables(raws, comp_cfg)
+        apt_to_cid = {w["apt_nm"]: cid for cid, w in zip(comps.keys(), comp_cfg)}
+        txs = to_transactions(raws, apt_to_cid)
+        site = __import__("report_system.live", fromlist=["_site_from"])._site_from(cfg)
+        persist = True
+    else:
+        site, at, persist = sd.build_site(), sd.ASOF, False
+        comps = sd.build_comparables()
+        txs = sd.build_transactions(comps)
+        print("[안내] --config 미지정 — 합성 표본으로 시연합니다 (계수 미저장)\n")
+
+    try:
+        res = calibrate(site, comps, txs, at)
+    except CalibrationError as e:
+        print(f"[교정 불가] {e}", file=sys.stderr)
+        return 1
+
+    path = OUT / "calibration.md"
+    path.write_text(res.as_markdown(), encoding="utf-8")
+    print(res.decision)
+    if res.fit is not None:
+        print(f"  회귀: 관측 {res.fit.n:,}건 · R² {res.fit.r2:.3f}")
+    for c in res.checks:
+        mark = "채택" if c.accepted else "유지"
+        est = f"{c.estimate:+.4f}" if c.estimate is not None else "—"
+        print(f"  [{mark}] {c.label}: 기존 {c.default:+.4f} / 추정 {est} — {c.reason}")
+    print(f"보고서: {path}")
+
+    if persist and res.changed:
+        save(res.adopted)
+        print("계수 저장: out/coefficients.json (다음 live 실행부터 적용)")
+    elif persist:
+        print("계수 미변경 — out/coefficients.json 을 쓰지 않았습니다")
+    return 0
+
+
 def main() -> int:
     p = argparse.ArgumentParser(prog="report_system")
     sub = p.add_subparsers(dest="command", required=True)
@@ -199,6 +255,10 @@ def main() -> int:
     dc = sub.add_parser("doctor")
     dc.add_argument("--config", required=True, help="현장 설정 JSON 경로")
     dc.add_argument("--skip-api", action="store_true", help="설정 검사만 수행")
+    cb = sub.add_parser("calibrate")
+    cb.add_argument("--config", help="현장 설정 JSON 경로 (없으면 합성 표본 시연)")
+    cb.add_argument("--asof", help="분석 기준일 YYYY-MM-DD")
+    cb.add_argument("--offline", action="store_true", help="캐시만 사용")
     lv = sub.add_parser("live")
     lv.add_argument("--config", required=True, help="현장 설정 JSON 경로")
     lv.add_argument("--asof", help="분석 기준일 YYYY-MM-DD (기본: 설정값)")
@@ -215,6 +275,8 @@ def main() -> int:
         return cmd_doctor(args.config, args.skip_api)
     if args.command == "history":
         return cmd_history(args.site)
+    if args.command == "calibrate":
+        return cmd_calibrate(args.config, args.asof, args.offline)
     return cmd_live(args.config, args.asof, args.offline)
 
 

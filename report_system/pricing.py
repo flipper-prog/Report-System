@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from datetime import date
 from statistics import quantiles
@@ -21,6 +22,52 @@ FLOOR_LOW_ADJ = +0.03         # 저층 거래는 상향 조정(표준층 환산)
 FLOOR_HIGH_ADJ = -0.02        # 고층 거래는 하향 조정
 PRESALE_WEIGHT = 2            # 분양권 거래 가중(비교군 우선, P1-1)
 MAX_DIST_M = 2000.0
+TIME_ADJ_PER_YEAR = 0.0       # 시점수정 연간 변화율 (기본: 미적용)
+TIME_ADJ_CAP = 0.30           # 시점수정 상한(로그, 절댓값)
+
+
+@dataclass(frozen=True)
+class Coefficients:
+    """품질조정 계수 묶음.
+
+    기본값은 문헌·경험 기반 초기값이며, `calibrate.py` 가 실데이터 회귀로
+    추정한 값이 백테스트에서 더 나을 때만 교체된다. `source` 는 리포트에
+    '예시값'인지 '교정값'인지를 밝히기 위해 함께 다닌다.
+    """
+    #: 계수는 모두 **로그 스케일**이다. 조정은 exp(계수)를 곱하는 형태이며,
+    #: 교정 엔진의 로그선형 회귀와 동일한 함수 형태를 갖도록 맞춘 것이다.
+    #: (선형 1+x 형태를 쓰면 추정식과 적용식이 달라져 계수가 클수록 어긋난다)
+    age_per_year: float = AGE_ADJ_PER_YEAR
+    age_cap: float = AGE_ADJ_CAP        # 연식 조정 상한(로그) — 외삽 방지
+    floor_low: float = FLOOR_LOW_ADJ
+    floor_high: float = FLOOR_HIGH_ADJ
+    #: 시점수정 — 과거 거래를 기준일 시세로 끌어올리거나 내리는 연간 변화율.
+    #: 기본 0.0(시점수정 없음). 조정이 정밀해질수록 밴드가 좁아져 시점 차이가
+    #: 그대로 드러나므로, 교정 시 회귀의 시간 계수로 이 값을 채운다.
+    time_per_year: float = TIME_ADJ_PER_YEAR
+    time_cap: float = TIME_ADJ_CAP      # 시점수정 상한(로그, 절댓값)
+    source: str = "초기값(미교정)"
+
+    def as_dict(self) -> dict:
+        return {"age_per_year": self.age_per_year, "age_cap": self.age_cap,
+                "floor_low": self.floor_low, "floor_high": self.floor_high,
+                "time_per_year": self.time_per_year, "time_cap": self.time_cap,
+                "source": self.source}
+
+    @staticmethod
+    def from_dict(d: dict) -> "Coefficients":
+        base = DEFAULT_COEF
+        return Coefficients(
+            age_per_year=float(d.get("age_per_year", base.age_per_year)),
+            age_cap=float(d.get("age_cap", base.age_cap)),
+            floor_low=float(d.get("floor_low", base.floor_low)),
+            floor_high=float(d.get("floor_high", base.floor_high)),
+            time_per_year=float(d.get("time_per_year", base.time_per_year)),
+            time_cap=float(d.get("time_cap", base.time_cap)),
+            source=str(d.get("source", "외부 지정")))
+
+
+DEFAULT_COEF = Coefficients()
 
 
 @dataclass
@@ -54,25 +101,38 @@ def _floor_band(t: TypeSpec, floor: int) -> str:
     return "기준층"
 
 
-def _adjust_ppsm(tx: Transaction, comp: Comparable, asof: date, subject_floors: tuple[int, int]) -> float:
+def _adjust_ppsm(tx: Transaction, comp: Comparable, asof: date,
+                 subject_floors: tuple[int, int],
+                 coef: Coefficients = DEFAULT_COEF) -> float:
     ppsm = tx.price / tx.area_m2
-    # 연식 조정: 신축(현장)과의 연식 차이만큼 상향
-    age = max(asof.year - comp.built_year, 0)
-    ppsm *= 1 + min(age * AGE_ADJ_PER_YEAR, AGE_ADJ_CAP)
+    # 시점수정: 과거 거래를 기준일(asof) 시세 수준으로 환산한다.
+    # 감정평가의 시점수정과 같은 역할이며, 계수가 0이면 아무 일도 하지 않는다.
+    if coef.time_per_year:
+        years = max(0.0, (asof - tx.trade_date).days / 365.25)
+        shift = coef.time_per_year * years
+        ppsm *= math.exp(max(-coef.time_cap, min(coef.time_cap, shift)))
+    # 연식 조정: 그 거래를 신축(현장) 수준으로 환산한다.
+    # 연식은 **거래 시점** 기준으로 잰다. 가격을 결정한 것은 거래 당시의 연식이며,
+    # 기준일 기준으로 재면 '경과 연수'가 연식 조정에 섞여 들어가 같은 단지 안에서도
+    # 오래된 거래일수록 조정값이 계통적으로 어긋난다. 시간 경과분은 위의 시점수정이
+    # 따로 담당한다 — 두 효과를 분리해야 회귀 추정치와 적용식이 일치한다.
+    age = max(tx.trade_date.year - comp.built_year, 0)
+    ppsm *= math.exp(min(age * coef.age_per_year, coef.age_cap))
     # 층 조정 → 기준층 환산
     lo, hi = subject_floors
     span = max(hi - lo + 1, 1)
     if tx.floor <= lo + max(2, span // 5) - 1:
-        ppsm *= 1 + FLOOR_LOW_ADJ
+        ppsm *= math.exp(coef.floor_low)
     elif tx.floor >= hi - max(1, span // 5) + 1:
-        ppsm *= 1 + FLOOR_HIGH_ADJ
+        ppsm *= math.exp(coef.floor_high)
     return ppsm
 
 
 def adjusted_ppsm(tx: Transaction, comp: Comparable, asof: date,
-                  subject_floors: tuple[int, int]) -> float:
+                  subject_floors: tuple[int, int],
+                  coef: Coefficients = DEFAULT_COEF) -> float:
     """공개 래퍼 — 백테스트가 운영과 동일한 조정식을 사용하도록 노출."""
-    return _adjust_ppsm(tx, comp, asof, subject_floors)
+    return _adjust_ppsm(tx, comp, asof, subject_floors, coef)
 
 
 def _quantile3(vals: list[float]) -> tuple[float, float, float]:
@@ -88,6 +148,7 @@ def quality_adjusted_bands(
     txs: list[Transaction],
     asof: date,
     profile=None,
+    coef: Coefficients = DEFAULT_COEF,
 ) -> list[Band]:
     """타입별(가능하면 층구간별) 품질조정 가격 밴드.
 
@@ -108,7 +169,7 @@ def quality_adjusted_bands(
                 continue
             if not (t.area_m2 * (1 - tol) <= tx.area_m2 <= t.area_m2 * (1 + tol)):
                 continue
-            adj = _adjust_ppsm(tx, comp, asof, t.floors)
+            adj = _adjust_ppsm(tx, comp, asof, t.floors, coef)
             weight = PRESALE_WEIGHT if comp.is_presale_right else 1
             fb = _floor_band(t, tx.floor)
             samples.extend([(fb, adj)] * weight)

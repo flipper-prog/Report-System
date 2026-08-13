@@ -20,8 +20,9 @@ python3 -m report_system live --config my_site.json --offline # 캐시만 사용
 # 3) 검증
 python3 -m report_system coverage   # 예측 이력 장부 적중률
 python3 -m report_system backtest   # 백테스트 단독 실행 → out/backtest.md
+python3 -m report_system calibrate --config my_site.json   # 조정계수 교정 → out/calibration.md
 python3 -m report_system history --site SAMPLE-001   # 회차별 판정·지표 변화
-python3 tests/run_all.py            # 전체 테스트 (196건)
+python3 tests/run_all.py            # 전체 테스트 (227건)
 ```
 
 ### 실데이터 준비 절차
@@ -115,6 +116,7 @@ python3 tests/run_all.py            # 전체 테스트 (196건)
   │    └→ ledger  예측 이력 장부: 봉인(불변 트리거)·실적 대조·적중률(coverage)
   ├→ timeseries  월별 추세·국면 전환 감지 → scenarios 하방/기준/상방 + 민감도
   ├→ backtest    시점 분리 검증(운영과 동일 함수) → 적중률 → modelcard 드리프트
+  │    └→ calibrate 조정계수 헤도닉 회귀 추정 → 홀드아웃 검증 통과 시에만 교체
   ├→ liquidity   환금성(회전율·가격분산·거래간격) → 판정 ③ 강화
   ├→ supply      확률조정 공급(단계별 실현 가능성 가중)
   ├→ catalyst    성숙도 엔진(검토/추진/확정 단계 → 광고 취급 등급, 촉매카드)
@@ -140,6 +142,7 @@ python3 tests/run_all.py            # 전체 테스트 (196건)
 | 가격의 하방은 전세가 말한다 | 전세가율·전월세전환율(`jeonse.py`) — 갱신 계약 제외, 표본 미달 시 미산출 | 5.4 가격 검증 |
 | 단일 AI 점수로 합치지 않는다 | 4개 독립 판정(`verdicts.py`) | 5.8 |
 | 예측은 사후 검증된다 | 시점 분리 백테스트(`backtest.py`) — 운영과 동일 함수 호출 | 5.4.2·E.2 |
+| 계수는 검증을 통과할 때만 바뀐다 | 헤도닉 회귀 + 홀드아웃 잔차 분산(`calibrate.py`) — 유의성·부호·범위 게이트 통과 후에도 검증 구간이 개선돼야 채택 | 5.4.2 |
 | 상품이 다르면 모델도 다르다 | 상품 프로파일(`profiles.py`) — 비교군·표본·청약 적용 분리 | P2-2 |
 | 판정은 직전 회차와 비교된다 | 실행 이력(`runstore.py`) — 판정별 관련 지표만 델타 표기 | 5.4.5 '변화' |
 
@@ -149,8 +152,9 @@ python3 tests/run_all.py            # 전체 테스트 (196건)
 report_system/             파이프라인 패키지 (stdlib only)
   connectors/              실데이터 커넥터 (molit=E01, applyhome=E02, base=캐시·이력)
   geo.py                   좌표 유틸 (직선거리·보행 보정 도보 시간)
+  calibrate.py             조정계수 교정 (헤도닉 회귀 + 홀드아웃 검증, stdlib OLS)
   live.py                  설정 JSON + 커넥터 → 리포트
-tests/                     unittest 스위트 (196건) — run_all.py 로 일괄 실행
+tests/                     unittest 스위트 (227건) — run_all.py 로 일괄 실행
 examples/site_config.json  실데이터 실행 설정 예시
 proposal/                  사업 제안서 (md + docx 납품본 + 변환 스크립트)
 docs/                      설계검토보고서 (P0/P1/P2 진단)
@@ -166,7 +170,8 @@ out/                       생성 산출물·캐시·장부 (git 미추적)
 | 인구·가구·사업체(L1·L2·L4)·인구이동(L3)·접근성(L8)·상권(L9) | **구현 완료** — 각 커넥터의 공간 해상도·환산 한계는 리포트에 병기 |
 | 생활이동·O/D (L7) | **파일 적재 구현** — KTDB·통신사 자료는 계약·승인 대상. 파일 확보 시 즉시 활성화 |
 | 소득·구매력 (L5) | 공공 대체 로그정규 근사 — 설정의 분포 파라미터 기반, LIMITATION 표기 |
-| 조정계수 | 연식·층·단계 실현률·DSR 가정은 파라미터 노출. **실데이터 백테스트로 교정 전까지 예시값** |
+| 조정계수(연식·층·시점) | **교정 엔진 구현** — `calibrate` 가 헤도닉 회귀로 추정하고 홀드아웃 검증을 통과할 때만 교체. 미교정 상태는 모델 카드에 '예시값'으로 표기 |
+| 단계 실현률·DSR 가정 | 파라미터 노출. **실적 누적 전까지 예시값** |
 | 드리프트·상품 프로파일·커버리지표 | **구현 완료** (P2-1·P2-2·P2-4) |
 | 경쟁 현장 모니터링·정제 룰 버전화 | **구현 완료** (P2-6·P2-3) |
 

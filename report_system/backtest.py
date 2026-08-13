@@ -12,8 +12,8 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from .models import Comparable, Site, SubscriptionRecord, Transaction
-from .pricing import (MAX_DIST_M, MIN_SAMPLES_BAND, adjusted_ppsm,
-                      quality_adjusted_bands)
+from .pricing import (DEFAULT_COEF, MAX_DIST_M, MIN_SAMPLES_BAND,
+                      Coefficients, adjusted_ppsm, quality_adjusted_bands)
 from .subscription import CONFIDENCE as SUB_CONFIDENCE
 from .subscription import predict
 from .transactions import clean
@@ -82,7 +82,8 @@ def _add_months(d: date, m: int) -> date:
 
 def backtest_price_bands(site: Site, comps: dict[str, Comparable],
                          txs: list[Transaction], cutoffs: list[date],
-                         horizon_months: int = 6) -> BacktestReport:
+                         horizon_months: int = 6,
+                         coef: Coefficients = DEFAULT_COEF) -> BacktestReport:
     rep = BacktestReport("가격 밴드 (품질조정 q25~q75)", PRICE_BAND_NOMINAL)
     kept = clean(txs).kept
 
@@ -94,7 +95,7 @@ def backtest_price_bands(site: Site, comps: dict[str, Comparable],
             rep.skipped.append(f"{cutoff}: 과거 {len(past)}건/미래 {len(future)}건")
             continue
 
-        bands = quality_adjusted_bands(site, comps, past, cutoff)
+        bands = quality_adjusted_bands(site, comps, past, cutoff, coef=coef)
         for t in site.types:
             band = next((b for b in bands
                          if b.type_name == t.name and b.level == "타입"
@@ -110,7 +111,7 @@ def backtest_price_bands(site: Site, comps: dict[str, Comparable],
                     continue
                 if not (t.area_m2 * 0.8 <= tx.area_m2 <= t.area_m2 * 1.2):
                     continue
-                actual = adjusted_ppsm(tx, comp, cutoff, t.floors)
+                actual = adjusted_ppsm(tx, comp, cutoff, t.floors, coef)
                 rep.folds.append(BacktestFold(
                     cutoff, f"{t.name}/{comp.name}", band.q25, band.q75, actual,
                     band.q25 <= actual <= band.q75))

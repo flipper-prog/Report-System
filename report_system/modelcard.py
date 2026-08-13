@@ -39,7 +39,16 @@ class ModelCard:
         return "\n".join(L)
 
 
-def price_band_card(n_tx: int, span: str, bt: BacktestReport | None) -> ModelCard:
+def price_band_card(n_tx: int, span: str, bt: BacktestReport | None,
+                    coef=None) -> ModelCard:
+    if coef is None or coef.source.startswith("초기값"):
+        coef_limit = ("조정계수(연식 1%/년, 층 ±2~3%)는 백테스트 교정 전 예시값 — "
+                      "`calibrate` 실행으로 교체 가능")
+    else:
+        coef_limit = (f"조정계수 출처: {coef.source} — 연식 "
+                      f"{coef.age_per_year*100:.2f}%/년, 저층 "
+                      f"{coef.floor_low*100:+.2f}%, 상층 {coef.floor_high*100:+.2f}%. "
+                      "백테스트 적중률이 개선될 때만 교체된 값")
     return ModelCard(
         model_id="품질조정 가격 밴드", version="qab-0.1",
         purpose="비교 거래를 연식·층·상품 차이로 조정해 타입별 가격 구간을 산출",
@@ -48,7 +57,7 @@ def price_band_card(n_tx: int, span: str, bt: BacktestReport | None) -> ModelCar
         training_window=f"거래 {n_tx}건 / {span}",
         validation=(bt.verdict() if bt else "백테스트 미실행"),
         known_limits=[
-            "조정계수(연식 1%/년, 층 ±2~3%)는 백테스트 교정 전 예시값",
+            coef_limit,
             "비교단지 선정이 설정 의존적 — 단지명 불일치 시 표본 편향",
             "표본 미달 구간은 상위 수준으로 롤업되어 정밀도가 낮아짐",
         ],
