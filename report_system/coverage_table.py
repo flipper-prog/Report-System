@@ -51,7 +51,8 @@ def build(*, tx_count: int, sub_count: int, supply_items: int,
           unsold_connected: bool = False,
           migration_connected: bool = False,
           mobility_connected: bool = False,
-          transit_connected: bool = False) -> list[LayerCoverage]:
+          transit_connected: bool = False,
+          rent_connected: bool = False) -> list[LayerCoverage]:
     """현재 파이프라인의 실제 수집 상태로 커버리지표를 생성한다."""
     out: list[LayerCoverage] = []
     for layer, source in LAYERS:
@@ -59,7 +60,9 @@ def build(*, tx_count: int, sub_count: int, supply_items: int,
 
         if layer.startswith("L11"):
             cov = Coverage.AVAILABLE if tx_count else Coverage.MISSING
-            note = f"수집 {tx_count}건" if tx_count else "수집 0건 — 설정 확인 필요"
+            note = f"매매 {tx_count}건" if tx_count else "수집 0건 — 설정 확인 필요"
+            note += " · 전월세 연동됨(전세가율 산출)" if rent_connected \
+                else " · 전월세 미수집 — 전세 기반 하방 점검 불가"
         elif layer.startswith("L12"):
             cov = Coverage.AVAILABLE if sub_count else Coverage.MISSING
             note = (f"수집 {sub_count}건 — 가격 갭·동시 공급 미제공"

@@ -93,6 +93,30 @@ class Transaction:
 
 
 @dataclass
+class RentRecord:
+    """전월세 실거래 1건 (국토부 전월세 자료 기준).
+
+    보증금·월세는 원 단위. 월세가 0이면 전세다. 갱신 계약(renewal)은 신규
+    체결과 가격 형성 논리가 달라(갱신요구권·상한제) 분석에서 분리한다.
+    """
+    complex_id: str
+    deal_date: date
+    area_m2: float
+    floor: int
+    deposit: int
+    monthly_rent: int = 0
+    renewal: bool = False
+
+    @property
+    def is_jeonse(self) -> bool:
+        return self.monthly_rent <= 0
+
+    @property
+    def deposit_ppsm(self) -> float:
+        return self.deposit / self.area_m2 if self.area_m2 else 0.0
+
+
+@dataclass
 class SubscriptionRecord:
     """시장권 청약 이력 1건 (청약홈 공개 데이터 기준).
 

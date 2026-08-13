@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
 
-from .connectors import applyhome, molit
+from .connectors import applyhome, molit, rent
 from .connectors.base import Fetcher, MissingApiKeyError, api_key
 
 OK, WARN, FAIL = "OK", "주의", "실패"
@@ -181,6 +181,20 @@ def check_apis(cfg: dict[str, Any], cache_dir: str = "out/cache") -> tuple[list[
                             f"{probe.year}-{probe.month:02d} 응답 {len(rows)}건 (총 {total}건)"))
     except Exception as e:  # noqa: BLE001 — 진단 목적상 모든 예외를 표시
         checks.append(Check("E01 실거래 API", FAIL, f"{type(e).__name__}: {e}"))
+
+    if cfg.get("collect_rent", True):
+        try:
+            body = f.get(rent.SOURCE, rent.URL, {
+                "serviceKey": key, "LAWD_CD": str(cfg["lawd_cd"]),
+                "DEAL_YMD": f"{probe.year}{probe.month:02d}",
+                "pageNo": 1, "numOfRows": 100})
+            rrows, rtotal = rent.parse_response(body)
+            n_j = sum(1 for r in rrows if r.is_jeonse)
+            checks.append(Check("E01-R 전월세 API", OK if rrows else WARN,
+                                f"{probe.year}-{probe.month:02d} 응답 {len(rrows)}건 "
+                                f"(전세 {n_j}건 / 총 {rtotal}건)"))
+        except Exception as e:  # noqa: BLE001
+            checks.append(Check("E01-R 전월세 API", FAIL, f"{type(e).__name__}: {e}"))
 
     try:
         rows = applyhome._fetch_all(  # noqa: SLF001 — 진단용 소량 호출

@@ -18,9 +18,10 @@ from .claims import lint
 from .feedback import check as feedback_check
 from .ledger import ForecastLedger
 from .liquidity import analyze as analyze_liquidity
+from .jeonse import analyze as analyze_jeonse
 from .models import (AdGrade, CatalystPlan, Claim, ClaimGrade, Comparable,
-                     DatasetMeta, FieldFeedback, ListingSnapshot, Site,
-                     SubscriptionRecord, SupplyItem, Transaction,
+                     DatasetMeta, FieldFeedback, ListingSnapshot, RentRecord,
+                     Site, SubscriptionRecord, SupplyItem, Transaction,
                      total_acquisition_cost)
 from .pricing import market_positions, quality_adjusted_bands
 from .profiles import applicability_note, get as get_profile
@@ -70,6 +71,7 @@ def run(
     migration: object | None = None,        # L3 (인구이동)
     mobility: object | None = None,         # L7 (생활이동·O/D)
     transit: object | None = None,          # L8 (교통망·접근성)
+    rents: "list[RentRecord] | None" = None,   # L11 전월세
 ) -> PipelineResult:
     # 1) 입력 검증 — 치명 결함 시 중단
     issues = validate_site(site, asof) + validate_transactions(txs, asof)
@@ -149,6 +151,7 @@ def run(
         supply_items=len(supply_items), catalyst_items=len(catalyst_plans_new),
         income_model=bool(incomes),
         listings_connected=bool(listings and listings[1].listings),
+        rent_connected=bool(rents),
         region_stats_connected=region_stats is not None,
         commerce_connected=commerce is not None,
         unsold_connected=unsold is not None,
@@ -174,7 +177,8 @@ def run(
         alerts += scan_competitors(competitors_old or [], competitors_new, asof)
 
     # 8) 판정 4종
-    v1 = price_verdict(positions)
+    jeonse_res = analyze_jeonse(rents or [], cr.kept, asof) if rents else None
+    v1 = price_verdict(positions, jeonse=jeonse_res)
     v2 = demand_verdict(afford, sub_fc, region_stats=region_stats,
                         commerce=commerce, migration=migration,
                         mobility=mobility, transit=transit)
@@ -225,7 +229,8 @@ def run(
         liquidity=liq, profile_note=applicability_note(profile),
         profile_notes=list(profile.notes),
         region_stats=region_stats, commerce=commerce, unsold=unsold,
-        migration=migration, mobility=mobility, transit=transit)
+        migration=migration, mobility=mobility, transit=transit,
+        jeonse=jeonse_res)
     return PipelineResult(generate_markdown(inputs), inputs, fid)
 
 

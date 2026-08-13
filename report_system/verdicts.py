@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from statistics import mean
+from statistics import mean, median
 
 from .affordability import AffordabilityResult
 from .liquidity import LiquidityResult
@@ -25,7 +25,8 @@ class Verdict:
     rationale: list[str]
 
 
-def price_verdict(positions: list[MarketPosition]) -> Verdict:
+def price_verdict(positions: list[MarketPosition],
+                  jeonse: object | None = None) -> Verdict:
     if not positions:
         return Verdict("① 현재 가격 위치", "중립", "약", "낮음", "최초",
                        ["비교 표본 부족으로 판정 유보"])
@@ -40,6 +41,27 @@ def price_verdict(positions: list[MarketPosition]) -> Verdict:
                  f"(밴드 {p.band.q25/1e4:,.0f}~{p.band.q75/1e4:,.0f}, n={p.band.n}"
                  f"{', 롤업' if p.band.rolled_up else ''})"
                  for p in positions]
+
+    # 전세 기반 하방 점검 — 매매 표본만으로는 보이지 않는 완충 두께를 덧댄다.
+    # 전세가율이 얇은데 가격이 밴드 상단이면, 두 신호가 같은 방향을 가리키므로
+    # 강도를 올린다. 반대로 두터운 완충은 상단 판정의 강도를 낮춘다.
+    if jeonse is not None:
+        rationale.append(jeonse.as_rationale())
+        ratio = getattr(jeonse, "ratio_pct", None)
+        if ratio is not None:
+            subj = median([p.subject_ppsm for p in positions])
+            cov = jeonse.coverage_of(subj)
+            if cov is not None:
+                rationale.append(
+                    f"분양가 전세 충당율 {cov:.0f}% — 총취득원가 중 전세보증금으로 "
+                    f"회수 가능한 비율")
+            if jeonse.label == "하방 완충 얇음" and direction == "부정":
+                strength = "강"
+                rationale.append("→ 밴드 상단 + 전세 완충 부족 — 하방 위험 강도 상향")
+            elif jeonse.label == "하방 지지 두터움" and direction == "부정" and strength == "강":
+                strength = "중"
+                rationale.append("→ 전세 완충이 두터워 하방 위험 강도 하향")
+
     return Verdict("① 현재 가격 위치", direction, strength, confidence, "최초", rationale)
 
 

@@ -17,7 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from report_system.connectors import applyhome, molit
+from report_system.connectors import applyhome, molit, rent
 from report_system.live import run_live
 
 KEY = "TEST-KEY-1234"
@@ -55,6 +55,34 @@ def build_month_items(y: int, m: int) -> list[dict]:
     return out
 
 
+def rent_xml(items: list[dict], total: int) -> bytes:
+    body = "".join(
+        f"<item><aptNm>{i['apt']}</aptNm><excluUseAr>{i['area']}</excluUseAr>"
+        f"<floor>{i['floor']}</floor><deposit>{i['dep']:,}</deposit>"
+        f"<monthlyRent>{i.get('rent', 0)}</monthlyRent>"
+        f"<dealYear>{i['y']}</dealYear><dealMonth>{i['m']}</dealMonth>"
+        f"<dealDay>{i['d']}</dealDay><buildYear>{i['build']}</buildYear>"
+        f"<umdNm>역삼동</umdNm>"
+        f"<contractType>{i.get('ct', '신규')}</contractType></item>" for i in items)
+    return (f'<?xml version="1.0" encoding="UTF-8"?><response>'
+            f"<header><resultCode>000</resultCode></header><body><items>{body}</items>"
+            f"<totalCount>{total}</totalCount></body></response>").encode()
+
+
+def build_rent_items(y: int, m: int) -> list[dict]:
+    """전세가율이 약 65%가 되도록 보증금을 잡은 전월세 표본."""
+    out = []
+    for day in range(1, 13):
+        out.append({"apt": "표본래미안", "dep": 95_000 + day * 200, "area": 84.97,
+                    "floor": 3 + day, "y": y, "m": m, "d": day, "build": 2019})
+        out.append({"apt": "표본자이", "dep": 90_000 + day * 150, "area": 59.98,
+                    "floor": 2 + day, "y": y, "m": m, "d": day, "build": 2016,
+                    "ct": "갱신" if day % 5 == 0 else "신규"})
+    out.append({"apt": "표본래미안", "dep": 30_000, "rent": 200, "area": 84.97,
+                "floor": 9, "y": y, "m": m, "d": 20, "build": 2019})
+    return out
+
+
 def applyhome_payloads() -> tuple[bytes, bytes]:
     details, cmpets = [], []
     for i in range(9):
@@ -80,6 +108,18 @@ def seed_cache(cache_dir: Path) -> None:
             "serviceKey": KEY, "LAWD_CD": LAWD, "DEAL_YMD": f"{y}{m:02d}",
             "pageNo": 1, "numOfRows": molit.PAGE_SIZE})
         p.write_bytes(molit_xml(items, len(items)))
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+
+    # E01-R 전월세: 동일 기간
+    y, m = ASOF.year, ASOF.month
+    for _ in range(MONTHS):
+        items = build_rent_items(y, m)
+        cache_path(cache_dir, rent.URL, {
+            "serviceKey": KEY, "LAWD_CD": LAWD, "DEAL_YMD": f"{y}{m:02d}",
+            "pageNo": 1, "numOfRows": rent.PAGE_SIZE}).write_bytes(
+                rent_xml(items, len(items)))
         m -= 1
         if m == 0:
             y, m = y - 1, 12
@@ -177,6 +217,17 @@ class TestLivePipeline(unittest.TestCase):
 
         # 커버리지 표기: 매물 커넥터 미구현은 D등급으로 노출
         self.assertIn("매물·호가 (미수집)", md)
+
+        # 전월세(E01-R)가 수집되어 전세가율이 산출되었는가
+        self.assertIn("전세 기반 하방 점검", md)
+        j = result.inputs.jeonse
+        self.assertIsNotNone(j.ratio_pct)
+        self.assertGreater(j.n_jeonse, 0)
+        self.assertGreater(j.n_renewal_excluded, 0)      # 갱신 계약 분리 확인
+        self.assertAlmostEqual(j.jeonse_ppsm / j.sale_ppsm * 100, j.ratio_pct,
+                               places=6)
+        v1 = next(v for v in result.inputs.verdicts if v.name.startswith("①"))
+        self.assertTrue(any("전세가율" in r for r in v1.rationale))
 
         # 수집 이력 기록
         prov = json.loads((self.root / "out" / "provenance.json").read_text(encoding="utf-8"))

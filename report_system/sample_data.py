@@ -10,8 +10,8 @@ from datetime import date, timedelta
 
 from .models import (
     CatalystPlan, Comparable, DatasetMeta, FieldFeedback, ListingSnapshot,
-    MaturityStage, Site, SubscriptionRecord, SupplyItem, SupplyStage,
-    Transaction, TypeSpec,
+    MaturityStage, RentRecord, Site, SubscriptionRecord, SupplyItem,
+    SupplyStage, Transaction, TypeSpec,
 )
 
 SEED = 20260812
@@ -68,6 +68,36 @@ def build_transactions(comps: dict[str, Comparable]) -> list[Transaction]:
     txs.append(Transaction("C-OLD2", ASOF - timedelta(days=45), 84.9, 12, 2_600_000_000))  # 이상 고가
     txs.append(Transaction("C-NEW1", ASOF - timedelta(days=60), 84.9, 3, 380_000_000))     # 특수 저가 의심
     return txs
+
+
+def build_rents(comps: dict[str, Comparable]) -> list[RentRecord]:
+    """전월세 합성 표본 — 전세가율이 약 62%(하방 지지 보통)가 되도록 생성.
+
+    최근 6개월 전세 ㎡단가를 소폭 높여 전세가율 상승(실수요 강화) 국면을 만든다.
+    갱신 계약도 섞어 분석 단계에서 제외되는지 확인할 수 있게 한다.
+    """
+    rng = random.Random(SEED + 5)
+    base_ppsm = {"C-OLD1": 9_000_000, "C-OLD2": 9_600_000,
+                 "C-NEW1": 10_800_000, "C-PRS1": 10_200_000}
+    out: list[RentRecord] = []
+    for cid, comp in comps.items():
+        for _ in range(24):
+            d = ASOF - timedelta(days=rng.randint(1, 12 * 30))
+            area = rng.choice([59.9, 74.9, 84.9])
+            recent = (ASOF - d).days <= 6 * 30
+            ratio = rng.gauss(0.64 if recent else 0.60, 0.03)
+            deposit = int(base_ppsm[cid] * area * max(0.4, ratio))
+            renewal = rng.random() < 0.15
+            if rng.random() < 0.25:
+                # 월세: 보증금을 전세의 30% 수준으로 낮추고 전환율 약 5.5% 적용
+                mon_deposit = int(deposit * 0.3)
+                monthly = int((deposit - mon_deposit) * 0.055 / 12)
+                out.append(RentRecord(cid, d, area, rng.randint(1, 25),
+                                      mon_deposit, monthly, renewal))
+            else:
+                out.append(RentRecord(cid, d, area, rng.randint(1, 25),
+                                      deposit, 0, renewal))
+    return out
 
 
 def build_subscription_history() -> list[SubscriptionRecord]:

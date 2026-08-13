@@ -25,6 +25,9 @@ from .connectors.transit import (StationFormatError, TransitApiError,
 from .connectors.unsold import UnsoldFormatError, load as load_unsold
 from .connectors.molit import (build_comparables, fetch_range,
                                to_transactions)
+from .connectors.rent import RentApiError
+from .connectors.rent import fetch_range as fetch_rent_range
+from .connectors.rent import to_records as to_rent_records
 from .ledger import ForecastLedger
 from .runstore import RunStore
 from .models import (CatalystPlan, DatasetMeta, FieldFeedback,
@@ -124,6 +127,19 @@ def run_live(config_path: str, asof: date | None = None,
         raise RuntimeError(
             "비교단지 거래 0건 — 설정의 apt_nm이 실거래 데이터의 단지명과 일치하는지 확인 필요.\n"
             f"이 지역({cfg['lawd_cd']}) 단지명 예시: {names}")
+
+    # E01-R 전월세 실거래 수집 (L11 완성 — 전세가율·전월세전환율)
+    rents = []
+    if cfg.get("collect_rent", True):
+        try:
+            rent_raws = fetch_rent_range(
+                fetcher, key, cfg["lawd_cd"], asof,
+                months=int(cfg.get("rent_months", cfg.get("months", 24))))
+            rents = to_rent_records(rent_raws, apt_to_cid)
+            if not rents:
+                print("[안내] 비교단지 전월세 거래 0건 — 전세 기반 하방 점검 생략")
+        except (RentApiError, RuntimeError) as e:
+            print(f"[안내] 전월세 수집 생략 — {e}")
 
     # E02 청약 이력 수집
     sub_hist = fetch_subscription_history(
@@ -236,7 +252,7 @@ def run_live(config_path: str, asof: date | None = None,
                                    region_stats=region_stats,
                                    commerce=commerce, unsold=unsold,
                                    migration=migration, mobility=mobility,
-                                   transit=transit),
+                                   transit=transit, rent_n=len(rents)),
         incomes=_incomes_from(cfg),
         feedback=_feedback_from(cfg),
         listings=listings_pair,
@@ -244,7 +260,8 @@ def run_live(config_path: str, asof: date | None = None,
         ledger=ForecastLedger(ledger_path),
         store=RunStore(store_path),
         region_stats=region_stats, commerce=commerce, unsold=unsold,
-        migration=migration, mobility=mobility, transit=transit)
+        migration=migration, mobility=mobility, transit=transit,
+        rents=rents)
 
     pathlib.Path("out").mkdir(exist_ok=True)
     pathlib.Path("out/provenance.json").write_text(
@@ -255,11 +272,17 @@ def run_live(config_path: str, asof: date | None = None,
 def _dataset_meta(sub_hist_n: int, tx_n: int,
                   listings_note: str = "",
                   region_stats=None, commerce=None, unsold=None,
-                  migration=None, mobility=None, transit=None) -> list[DatasetMeta]:
+                  migration=None, mobility=None, transit=None,
+                  rent_n: int = 0) -> list[DatasetMeta]:
     """수집 결과 기반의 적합성 평가(라이브 기본값)."""
     return [
         DatasetMeta("L11 실거래 (국토부 E01)", 24, 24, 18, 15, 15,
                     note=f"수집 {tx_n}건, 캐시 재현 가능"),
+        (DatasetMeta("L11 전월세 (국토부 E01-R)", 22, 24, 17, 14, 15,
+                     note=f"수집 {rent_n}건 — 갱신 계약은 분석에서 제외")
+         if rent_n else
+         DatasetMeta("L11 전월세 (미수집)", 0, 0, 0, 0, 0,
+                     note="collect_rent=false 또는 비교단지 전월세 0건")),
         DatasetMeta("L12 청약 이력 (청약홈 E02)", 20, 22, 15, 14, 15,
                     note=f"수집 {sub_hist_n}건 — 가격 갭·동시 공급 미제공(지역·기간 매칭)"),
         DatasetMeta("L5 소득·구매력 (로그정규 근사)", 12, 14, 10, 8, 15,

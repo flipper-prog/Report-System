@@ -46,6 +46,7 @@ def cmd_generate() -> int:
         incomes=sd.build_incomes(),
         feedback=sd.build_feedback(),
         listings=sd.build_listing_snapshots(),
+        rents=sd.build_rents(comps),
         asof=sd.ASOF,
         ledger=ledger,
         store=RunStore(str(OUT / 'runs.db')),

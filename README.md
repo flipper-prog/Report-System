@@ -21,14 +21,17 @@ python3 -m report_system live --config my_site.json --offline # 캐시만 사용
 python3 -m report_system coverage   # 예측 이력 장부 적중률
 python3 -m report_system backtest   # 백테스트 단독 실행 → out/backtest.md
 python3 -m report_system history --site SAMPLE-001   # 회차별 판정·지표 변화
-python3 tests/run_all.py            # 전체 테스트 (172건)
+python3 tests/run_all.py            # 전체 테스트 (196건)
 ```
 
 ### 실데이터 준비 절차
 
-1. [공공데이터포털](https://www.data.go.kr) 가입 후 두 API에 활용신청
+1. [공공데이터포털](https://www.data.go.kr) 가입 후 아래 API에 활용신청
+   (모두 같은 인증키를 쓴다)
    - **국토교통부_아파트 매매 실거래가 자료** (E01) — 승인까지 수십 분
+   - **국토교통부_아파트 전월세 실거래가 자료** (E01-R) — 전세가율 산출에 필요
    - **한국부동산원_청약홈 분양정보/경쟁률 조회** (E02) — odcloud 계열, 자동승인
+   - (선택) 소상공인시장진흥공단 상권정보, 국토교통부 TAGO 정류소정보
 2. 마이페이지에서 **일반 인증키(Decoding)** 복사 → `DATA_GO_KR_API_KEY`로 export
 3. `examples/site_config.json`을 복사해 현장 정보 입력
    - `lawd_cd`: 법정동 코드 5자리 (예: 강남구 `11680`)
@@ -41,10 +44,11 @@ python3 tests/run_all.py            # 전체 테스트 (172건)
 `live` 실행 전에 설정·연결·데이터 가용성을 점검한다. API 호출은 엔드포인트당 1회.
 
 ```
-[1] 설정 검사     필수 키·타입, 세대수 정합, 분양가 단위, 법정동 코드 5자리
-[2] API 연결      인증키 인식, E01/E02 실제 응답 건수
-[3] 비교단지 매칭  설정의 apt_nm 이 실데이터에 존재하는지 + 유사 후보 제안
-                  → 지역 단지명 전체를 out/apt_names.txt 로 저장
+[1] 설정 검사        필수 키·타입, 세대수 정합, 분양가 단위, 법정동 코드 5자리
+[2] 선택 레이어      어떤 레이어가 켜지는지 + 지정한 파일이 실제로 있는지
+[3] API 연결         인증키 인식, E01/E01-R/E02 실제 응답 건수
+[4] 비교단지 매칭     설정의 apt_nm 이 실데이터에 존재하는지 + 유사 후보 제안
+                     → 지역 단지명 전체를 out/apt_names.txt 로 저장
 ```
 
 `--skip-api` 로 설정 검사만 수행할 수 있다. 실패 항목이 있으면 종료코드 1.
@@ -53,7 +57,8 @@ python3 tests/run_all.py            # 전체 테스트 (172건)
 
 | 레이어 | 커넥터 | 인증 | 설정 키 |
 |--------|--------|------|---------|
-| L11 실거래 | `molit` (국토부 E01) | `DATA_GO_KR_API_KEY` | `lawd_cd`, `comparables` |
+| L11 매매 실거래 | `molit` (국토부 E01) | `DATA_GO_KR_API_KEY` | `lawd_cd`, `comparables` |
+| L11 전월세 실거래 | `rent` (국토부 E01-R) | 〃 | `collect_rent`(기본 on), `rent_months` |
 | L12 청약 | `applyhome` (청약홈 E02) | 〃 | `subscription_regions` |
 | L12 미분양 | `unsold` (파일) | — | `unsold_file` |
 | L1·L2·L4 인구·가구·사업체 | `sgis` (통계청) | `SGIS_CONSUMER_KEY`/`SECRET` | `sgis_adm_cd`, `sgis_years` |
@@ -92,7 +97,8 @@ python3 tests/run_all.py            # 전체 테스트 (172건)
 ## 아키텍처
 
 ```
-[실데이터] connectors/  molit(E01 실거래) · applyhome(E02 청약) · sgis(L1·L2·L4 인구·가구·사업체)
+[실데이터] connectors/  molit(E01 매매) · rent(E01-R 전월세) · applyhome(E02 청약)
+                        sgis(L1·L2·L4 인구·가구·사업체)
                         migration(L3 인구이동) · mobility(L7 O/D) · transit(L8 접근성)
                         commerce(L9 상권) · unsold(L12 미분양) · listings(매물·호가)
            └ 캐시·재시도·수집이력(Provenance) → live.py 가 설정(JSON)과 결합
@@ -103,6 +109,7 @@ python3 tests/run_all.py            # 전체 테스트 (172건)
   → transactions 거래 정제(취소·중복·이상·특수)          [정제 내역 리포트 표기]
   → quality      데이터 적합성 5축 → A~D (D는 사용 금지)
   ├→ pricing     품질조정 가격 밴드(타입·층구간, 분양권 우선 비교군, 표본 미달 시 롤업)
+  ├→ jeonse      전세가율·전월세전환율(하방 완충 두께) → 판정 ① 보강
   ├→ affordability 실부담 시뮬레이터(LTV·DSR·금리 시나리오, 구매 가능 가구 비율)
   ├→ subscription 청약경쟁률 구간 예측(유사 사례 경험분포, 표본 미달 시 정성 전환)
   │    └→ ledger  예측 이력 장부: 봉인(불변 트리거)·실적 대조·적중률(coverage)
@@ -130,6 +137,7 @@ python3 tests/run_all.py            # 전체 테스트 (172건)
 | 신축 비교군은 분양권 우선 | 분양권 거래 가중(`pricing.py`) | P1-1 |
 | 현장이 분석을 교정한다 | 거절 사유 vs 판정 정합성, 방문객 거주지 vs 인구이동 유입 출발지(`feedback.py`) | 5.11.3 (P1-3) |
 | 접근성은 주장이 아니라 좌표로 말한다 | 최근접역 도보 10분 이내에서만 문장 생성(`transit.py`·`pipeline.py`) | 5.9 광고 표현 통제 |
+| 가격의 하방은 전세가 말한다 | 전세가율·전월세전환율(`jeonse.py`) — 갱신 계약 제외, 표본 미달 시 미산출 | 5.4 가격 검증 |
 | 단일 AI 점수로 합치지 않는다 | 4개 독립 판정(`verdicts.py`) | 5.8 |
 | 예측은 사후 검증된다 | 시점 분리 백테스트(`backtest.py`) — 운영과 동일 함수 호출 | 5.4.2·E.2 |
 | 상품이 다르면 모델도 다르다 | 상품 프로파일(`profiles.py`) — 비교군·표본·청약 적용 분리 | P2-2 |
@@ -142,7 +150,7 @@ report_system/             파이프라인 패키지 (stdlib only)
   connectors/              실데이터 커넥터 (molit=E01, applyhome=E02, base=캐시·이력)
   geo.py                   좌표 유틸 (직선거리·보행 보정 도보 시간)
   live.py                  설정 JSON + 커넥터 → 리포트
-tests/                     unittest 스위트 (172건) — run_all.py 로 일괄 실행
+tests/                     unittest 스위트 (196건) — run_all.py 로 일괄 실행
 examples/site_config.json  실데이터 실행 설정 예시
 proposal/                  사업 제안서 (md + docx 납품본 + 변환 스크립트)
 docs/                      설계검토보고서 (P0/P1/P2 진단)
@@ -153,7 +161,7 @@ out/                       생성 산출물·캐시·장부 (git 미추적)
 
 | 항목 | 상태 |
 |------|------|
-| 실거래(E01)·청약(E02) | **구현 완료** — 캐시·재시도·수집이력 포함 |
+| 매매(E01)·전월세(E01-R)·청약(E02) | **구현 완료** — 캐시·재시도·수집이력 포함. 전월세로 전세가율·전월세전환율 산출 |
 | 매물·호가 (P1-2 선행 신호) | **파일 수집 구현** — 무료 공개 API 부재로 CSV/JSON 적재 방식. `listings_file` 지정 시 활성화 |
 | 인구·가구·사업체(L1·L2·L4)·인구이동(L3)·접근성(L8)·상권(L9) | **구현 완료** — 각 커넥터의 공간 해상도·환산 한계는 리포트에 병기 |
 | 생활이동·O/D (L7) | **파일 적재 구현** — KTDB·통신사 자료는 계약·승인 대상. 파일 확보 시 즉시 활성화 |

@@ -60,6 +60,7 @@ class ReportInputs:
     migration: object | None = None
     mobility: object | None = None
     transit: object | None = None
+    jeonse: object | None = None
 
     def __post_init__(self):
         for f in ("backtests", "coverage_rows", "model_cards", "drifts",
@@ -155,6 +156,44 @@ def generate_markdown(x: ReportInputs) -> str:
     for p in x.positions:
         add(f"| {p.type_name} | {_fmt_won(p.subject_ppsm)} | {p.label} |")
     add("")
+
+    # 4-2. 전세 기반 하방 점검
+    if x.jeonse is not None:
+        j = x.jeonse
+        add("## 4-2. 전세 기반 하방 점검 (전세가율·전월세전환율)")
+        add("")
+        add("*매매가에는 미래 기대가 섞이지만 전세가는 실거주 수요가 지금 지불하는 "
+            "금액이다. 전세가율은 가격이 밀릴 때의 완충 두께로 읽는다.*")
+        add("")
+        add("| 항목 | 값 | 판정 |")
+        add("|------|-----|------|")
+        if j.ratio_pct is not None:
+            add(f"| 전세가율 (최근 {j.ratio_window_months}개월) | {j.ratio_pct:.1f}% | "
+                f"{j.label} |")
+            if j.ratio_prev_pct is not None:
+                add(f"| 직전 {j.ratio_window_months}개월 전세가율 | "
+                    f"{j.ratio_prev_pct:.1f}% ({j.ratio_delta_pp:+.1f}%p) | "
+                    f"{j.trend_label} |")
+            add(f"| 전세 ㎡단가 (중위) | {_fmt_won(j.jeonse_ppsm)}/㎡ | "
+                f"전세 {j.n_ratio_jeonse}건 기준 |")
+            add(f"| 매매 ㎡단가 (중위) | {_fmt_won(j.sale_ppsm)}/㎡ | "
+                f"매매 {j.n_ratio_sale}건 기준 |")
+            if x.positions:
+                subj = sorted(p.subject_ppsm for p in x.positions)[len(x.positions) // 2]
+                cov = j.coverage_of(subj)
+                if cov is not None:
+                    add(f"| 분양가 전세 충당율 | {cov:.0f}% | "
+                        f"총취득원가 중 전세보증금 회수 가능분 |")
+        else:
+            add(f"| 전세가율 | 미산출 | 표본 부족 |")
+        if j.conversion_rate_pct is not None:
+            add(f"| 전월세전환율 | {j.conversion_rate_pct:.1f}% | 월세 시장 요구 수익률 |")
+        add(f"| 전체 수집 표본 | 전세 {j.n_jeonse}건 · 월세 {j.n_monthly}건 · "
+            f"매매 {j.n_sale}건 (최근 {j.window_months}개월) | — |")
+        add("")
+        for lim in j.limitations:
+            add(f"- {lim}")
+        add("")
 
     # 5. 실부담
     add("## 5. 실부담 시뮬레이션")
