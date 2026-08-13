@@ -60,11 +60,14 @@ def _relevance(plan: CatalystPlan) -> str:
     return "하"
 
 
-def assess(plan: CatalystPlan) -> CatalystCard:
+def assess(plan: CatalystPlan,
+           feasibility: "dict[MaturityStage, float] | None" = None) -> CatalystCard:
+    """feasibility: 단계별 실현 가능성 재정의. 강건성 검사(robustness)에서
+    임계 근처 판정이 가정 변화에 뒤집히는지 보기 위해 노출한다."""
     group = STAGE_GROUP[plan.stage]
     ad_grade, rule = AD_TREATMENT[group]
     secured_ratio = (plan.budget_secured / plan.budget_total) if plan.budget_total else 0.0
-    feas = STAGE_FEASIBILITY[plan.stage]
+    feas = (feasibility or STAGE_FEASIBILITY)[plan.stage]
     # 재정 집행이 뒷받침되지 않는 추진 단계는 실현 가능성 하향 (A.14)
     if group == "추진 단계" and secured_ratio < 0.10:
         feas *= 0.7

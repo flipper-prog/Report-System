@@ -62,6 +62,7 @@ def simulate(
     ltv_cap: float = 0.5,
     dsr_cap: float = 0.4,
     rates: tuple[float, ...] = (0.030, 0.040, 0.055),
+    equity_multiple: float = EQUITY_INCOME_MULTIPLE,
 ) -> AffordabilityResult:
     cost = total_acquisition_cost(t)
     res = AffordabilityResult(t.name, cost, ltv_cap, dsr_cap,
@@ -75,7 +76,7 @@ def simulate(
         eligible = 0
         monthly_at_ltv = annuity_monthly(loan_ltv, rate)
         for inc in incomes:
-            equity_avail = inc * EQUITY_INCOME_MULTIPLE
+            equity_avail = inc * equity_multiple
             loan_needed = max(cost - equity_avail, 0.0)
             loan_cap = min(loan_ltv, max_loan_by_dsr(inc, dsr_cap, rate))
             if loan_needed <= loan_cap:

@@ -35,14 +35,21 @@ class SupplyAssessment:
         return "공급 부담 낮음"
 
 
-def probability_adjusted(items: list[SupplyItem], window_months: int = 36) -> SupplyAssessment:
+def probability_adjusted(
+    items: list[SupplyItem],
+    window_months: int = 36,
+    realization: "dict[SupplyStage, float] | None" = None,
+) -> SupplyAssessment:
+    """realization: 단계별 실현률 재정의. 강건성 검사(robustness)에서 가정을
+    흔들어 판정이 뒤집히는지 보기 위해 노출한다. 미지정 시 기본값 사용."""
+    rates = realization or STAGE_REALIZATION
     rows: list[tuple[str, int, str, float]] = []
     nominal = 0
     adjusted = 0.0
     for it in items:
         if it.months_to_movein > window_months:
             continue
-        w = STAGE_REALIZATION[it.stage]
+        w = rates[it.stage]
         nominal += it.units
         adj = it.units * w
         adjusted += adj

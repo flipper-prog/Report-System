@@ -30,6 +30,7 @@ from .pricing import (DEFAULT_COEF, Coefficients, market_positions,
                       quality_adjusted_bands)
 from .profiles import applicability_note, get as get_profile
 from .report import ReportInputs, generate_markdown
+from .robustness import analyze as analyze_robustness
 from .runstore import RunSnapshot, RunStore, describe_change
 from .salespack import build as build_salespack
 from .scenarios import build as build_scenarios
@@ -220,6 +221,15 @@ def run(
     v4 = catalyst_verdict(cards)
     verdicts = [v1, v2, v3, v4]
 
+    # 8-1) 강건성 검사 — 가정을 흔들었을 때 판정 방향이 유지되는지 (5.8.4)
+    robust = analyze_robustness(
+        base_verdicts=verdicts, site=site, comps=comps, txs=cr.kept, asof=asof,
+        profile=profile, coef=coef, jeonse=jeonse_res, incomes=incomes,
+        sub_forecast=sub_fc, supply_items=supply_items,
+        catalyst_plans=catalyst_plans_new, liquidity=liq,
+        region_stats=region_stats, commerce=commerce, migration=migration,
+        mobility=mobility, transit=transit, unsold=unsold, housing=housing)
+
     # 8-2) 직전 회차 대비 '변화' 속성 산출 후 이번 회차 저장 (5.4.5)
     cur_metrics = {
         "anchor_ppsm": anchor,
@@ -265,7 +275,7 @@ def run(
         liquidity=liq, jeonse=jeonse_res, unsold=unsold, housing=housing,
         price_decision=decision, region_stats=region_stats,
         migration=migration, mobility=mobility, transit=transit,
-        commerce=commerce)
+        commerce=commerce, robustness=robust)
 
     # 11) 근거원장 — 리포트의 핵심 수치마다 출처·산출식·표본·한계를 등재
     ledger_ev = _build_evidence(
@@ -274,7 +284,7 @@ def run(
         site=site, liq=liq, scen=scen, scen_id=scen_id, cards=cards,
         region_stats=region_stats, migration=migration, mobility=mobility,
         transit=transit, commerce=commerce, unsold=unsold, housing=housing,
-        income_stats=income_stats, decision=decision,
+        income_stats=income_stats, decision=decision, robust=robust,
         competitor_alerts=[a for a in alerts if a.category == "경쟁 현장"])
 
     inputs = ReportInputs(
@@ -291,14 +301,14 @@ def run(
         migration=migration, mobility=mobility, transit=transit,
         jeonse=jeonse_res, evidence=ledger_ev, housing=housing,
         income_stats=income_stats, price_decision=decision,
-        salespack=pack, funnel=funnel_dx)
+        salespack=pack, funnel=funnel_dx, robustness=robust)
     return PipelineResult(generate_markdown(inputs), inputs, fid)
 
 
 def _build_evidence(*, provenance, cr, bands, anchor, coef, jeonse, afford,
                     sub_fc, fid, sa, site, liq, scen, scen_id, cards,
                     region_stats, migration, mobility, transit, commerce,
-                    unsold, housing, income_stats, decision,
+                    unsold, housing, income_stats, decision, robust,
                     competitor_alerts) -> EvidenceLedger:
     """리포트의 핵심 수치를 순서대로 등재한다.
 
@@ -432,6 +442,21 @@ def _build_evidence(*, provenance, cr, bands, anchor, coef, jeonse, afford,
             ev.add_missing("경쟁 현장 변동",
                            "스냅숏 미제공 또는 회차가 1개 — 변화 감지 불가",
                            "competitor.scan")
+
+    if robust is not None and robust.checks:
+        # 판정이 가정에 얼마나 매달려 있는지도 근거다. 결론만 등재하고
+        # 그 결론의 취약성을 빼면, 원장이 결론을 실제보다 단단해 보이게 만든다.
+        ev.add("판정 강건성", robust.label,
+               "robustness.analyze (가정 교란 후 동일 판정 함수 재실행)",
+               ClaimGrade.CALCULATION, n=len(robust.checks),
+               limitations=(
+                   [f"가정 의존 판정: {', '.join(robust.fragile)}"]
+                   if robust.fragile else [])
+               + [f"미검사 가정: {n}" for n, _ in robust.skipped]
+               + ["교란 폭 자체가 가정 — 실측 교정 후 재검사 권고"])
+    elif robust is not None:
+        ev.add_missing("판정 강건성", "흔들 수 있는 가정 없음 — 검사 미실행",
+                       "robustness.analyze")
 
     if cards:
         allowed = [c.name for c in cards if c.ad_grade != AdGrade.FORBIDDEN]

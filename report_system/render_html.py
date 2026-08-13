@@ -103,6 +103,7 @@ _BADGES = {
     "FACT": "b-fact", "CALCULATION": "b-fact", "INFERENCE": "b-neu",
     "FORECAST": "b-fore", "LIMITATION": "b-lim",
     "사용 가능": "b-pos", "사용 금지": "b-neg", "조건부 사용": "b-neu",
+    "방향 유지": "b-pos", "뒤집힘": "b-neg", "강도 하락": "b-neu",
     "A": "b-pos", "D": "b-neg",
 }
 

@@ -67,6 +67,7 @@ class ReportInputs:
     price_decision: object | None = None
     salespack: object | None = None
     funnel: object | None = None
+    robustness: object | None = None
 
     def __post_init__(self):
         for f in ("backtests", "coverage_rows", "model_cards", "drifts",
@@ -106,10 +107,28 @@ def generate_markdown(x: ReportInputs) -> str:
     for v in x.verdicts:
         add(f"| {v.name} | {v.direction} | {v.strength} | {v.confidence} | {v.change} |")
     add("")
+    if x.robustness is not None and x.robustness.fragile:
+        # 요약표만 보고 넘어가는 독자에게, 어떤 판정이 가정에 매달려 있는지를
+        # 결론 옆에서 바로 알린다.
+        add(f"> **가정 의존 판정**: {', '.join(x.robustness.fragile)} — "
+            "가정 하나만 바꿔도 방향이 뒤집힙니다 (1-2 참조). [LIMITATION]")
+        add("")
     for v in x.verdicts:
         add(f"**{v.name}**")
         for r in v.rationale:
             add(f"- {r}")
+        add("")
+
+    # 1-2. 판정 강건성 검사
+    if x.robustness is not None:
+        add("## 1-2. 판정 강건성 검사 — 가정이 바뀌면 결론이 뒤집히는가")
+        add("")
+        add("*판정에는 데이터뿐 아니라 선택된 가정(조정계수·대출 한도·실현률 등)이 "
+            "들어갑니다. 각 가정을 합리적 범위에서 흔든 뒤 **같은 판정 함수로** "
+            "다시 계산했습니다. 방향이 유지되면 데이터가 지지하는 결론이고, "
+            "뒤집히면 그 판정은 가정에 의존합니다.*")
+        add("")
+        add(x.robustness.as_markdown())
         add("")
 
     # 2. 데이터 커버리지

@@ -46,6 +46,17 @@ REJECTION_FRAMES = {
 #: 거절 사유가 이 비중을 넘으면 대응 자료를 우선 항목으로 배치
 PRIORITY_SHARE = 0.15
 
+#: 질문 축 → 그 답변을 떠받치는 판정. 판정이 가정 하나로 뒤집히면(강건성 검사)
+#: 그 축의 답변은 사실이 아니라 '가정 위의 결론'이므로 상담원에게 그대로 알린다.
+AXIS_VERDICT = {
+    "Q1": "① 현재 가격 위치",
+    "Q2": "② 수요 지속성",
+    "Q3": "③ 공급·환금성 위험",
+    "Q4": "④ 촉매·실행 가능성",
+    "Q5": "③ 공급·환금성 위험",
+    "Q6": "③ 공급·환금성 위험",
+}
+
 
 @dataclass
 class Answer:
@@ -58,6 +69,9 @@ class Answer:
     counter: list[str] = field(default_factory=list)
     claim: Optional[Claim] = None
     unanswerable_reason: str = ""
+    #: 근거는 있으나 판정이 가정에 의존할 때의 경고. 답변을 지우지는 않는다 —
+    #: 상담원이 "단정해도 되는 답인지"를 알고 쓰게 하는 것이 목적이다.
+    caution: str = ""
 
     @property
     def answerable(self) -> bool:
@@ -105,6 +119,8 @@ class SalesPack:
                      if a.claim else "—")
             blocked = a.claim is not None and a.claim.text not in passed
             text = f"~~{a.headline}~~ (린트 차단)" if blocked else a.headline
+            if a.caution:
+                text += " *(가정 의존 — 단정 금지)*"
             L.append(f"| {a.code} | {a.question} | {text} | {grade} |")
 
         L += ["", "### 근거카드", ""]
@@ -122,6 +138,8 @@ class SalesPack:
                 L.append(f"- 근거: {e}")
             for c in a.counter:
                 L.append(f"- 반대·한계: {c}")
+            if a.caution:
+                L.append(f"- 주의: {a.caution}")
             if a.claim:
                 L.append(f"- 영업: [{a.claim.grade.value} · "
                          f"{a.claim.ad_grade.value}] 등급으로 사용")
@@ -344,7 +362,7 @@ def build(*, positions, verdicts, afford, sub_forecast, supply, site_units,
           catalysts, alerts, feedback, liquidity=None, jeonse=None,
           unsold=None, housing=None, price_decision=None,
           region_stats=None, migration=None, mobility=None, transit=None,
-          commerce=None) -> SalesPack:
+          commerce=None, robustness=None) -> SalesPack:
     """분석 결과에서 판매 논리 산출물을 생성하고 표현 린트를 적용한다."""
     layers = {"region_stats": region_stats, "migration": migration,
               "mobility": mobility, "transit": transit, "commerce": commerce}
@@ -359,6 +377,18 @@ def build(*, positions, verdicts, afford, sub_forecast, supply, site_units,
     ]
     by_code = {a.code: a for a in answers}
 
+    # 강건성 검사에서 뒤집힌 판정에 기대는 축은 '단정 금지'로 표시한다.
+    # 분석이 스스로 흔들린다고 밝힌 결론을 상담원이 확언으로 쓰는 것을 막는다.
+    fragile = set(getattr(robustness, "fragile", None) or [])
+    if fragile:
+        for a in answers:
+            name = AXIS_VERDICT.get(a.code)
+            if a.answerable and name in fragile:
+                causes = sorted({c.assumption for c in robustness.checks
+                                 if c.flipped and c.verdict == name})
+                a.caution = (f"{name} 판정은 {', '.join(causes)} 가정이 바뀌면 "
+                             "방향이 뒤집힙니다 — 확언 대신 조건과 함께 제시")
+
     pack = SalesPack(answers=answers,
                      rebuttals=_rebuttals(feedback, by_code))
     pack.lint = lint([a.claim for a in answers if a.claim is not None])
@@ -368,6 +398,11 @@ def build(*, positions, verdicts, afford, sub_forecast, supply, site_units,
         pack.notes.append(
             f"답변 불가 축: {', '.join(unanswered)} — 해당 질문은 상담에서 "
             "'확인 후 회신'으로 처리하고, 근거 확보 후 재생성합니다")
+    cautioned = [a.code for a in answers if a.caution]
+    if cautioned:
+        pack.notes.append(
+            f"가정 의존 축: {', '.join(cautioned)} — 해당 축은 단정형 문장을 "
+            "피하고 '현재 가정 기준'을 병기합니다 (1-2 강건성 검사 참조)")
     if pack.lint.blocked:
         pack.notes.append(
             f"린트 차단 {len(pack.lint.blocked)}건 — 차단된 문장은 산출물에서 "
