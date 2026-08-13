@@ -61,6 +61,7 @@ class ReportInputs:
     mobility: object | None = None
     transit: object | None = None
     jeonse: object | None = None
+    evidence: object | None = None
 
     def __post_init__(self):
         for f in ("backtests", "coverage_rows", "model_cards", "drifts",
@@ -378,6 +379,17 @@ def generate_markdown(x: ReportInputs) -> str:
         for c, reason in x.lint.blocked:
             add(f"- ~~{c.text}~~ — {reason}")
     add("")
+
+    # 11. 근거원장
+    if x.evidence is not None:
+        add("## 11. 근거원장 — 수치별 출처·산출식·표본")
+        add("")
+        add("*이 리포트의 핵심 수치는 모두 아래 표에 등재됩니다. 어떤 수치든 "
+            "'무슨 데이터로, 어떤 규칙으로, 표본 몇 건에서 나왔는가'를 여기서 "
+            "확인할 수 있습니다.*")
+        add("")
+        add(x.evidence.as_markdown())
+        add("")
 
     add("---")
     add("*본 리포트의 분석은 분양 마케팅·판매전략 목적이며 감정평가·투자자문이 아닙니다. "

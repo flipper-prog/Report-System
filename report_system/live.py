@@ -263,7 +263,8 @@ def run_live(config_path: str, asof: date | None = None,
         region_stats=region_stats, commerce=commerce, unsold=unsold,
         migration=migration, mobility=mobility, transit=transit,
         rents=rents,
-        coef=load_coefficients(cfg.get("coefficients_file", "out/coefficients.json")))
+        coef=load_coefficients(cfg.get("coefficients_file", "out/coefficients.json")),
+        provenance=fetcher.provenance)
 
     pathlib.Path("out").mkdir(exist_ok=True)
     pathlib.Path("out/provenance.json").write_text(

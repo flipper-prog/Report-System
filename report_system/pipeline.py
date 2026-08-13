@@ -15,6 +15,7 @@ from .coverage_table import build as build_coverage
 from .modelcard import (detect_drift, price_band_card, scenario_card,
                         subscription_card)
 from .claims import lint
+from .evidence import EvidenceLedger
 from .feedback import check as feedback_check
 from .ledger import ForecastLedger
 from .liquidity import analyze as analyze_liquidity
@@ -32,7 +33,7 @@ from .scenarios import build as build_scenarios
 from .subscription import SubscriptionForecast, predict
 from .supply import probability_adjusted
 from .timeseries import monthly_trend
-from .transactions import clean
+from .transactions import RULES_VERSION, clean
 from .validation import has_fatal, validate_site, validate_transactions
 from .verdicts import (catalyst_verdict, demand_verdict, price_verdict,
                        supply_verdict)
@@ -74,6 +75,7 @@ def run(
     transit: object | None = None,          # L8 (교통망·접근성)
     rents: "list[RentRecord] | None" = None,   # L11 전월세
     coef: Coefficients = DEFAULT_COEF,      # 품질조정 계수(교정 시 교체)
+    provenance: "list | None" = None,       # 수집 이력 → 근거원장 출처 연결
 ) -> PipelineResult:
     # 1) 입력 검증 — 치명 결함 시 중단
     issues = validate_site(site, asof) + validate_transactions(txs, asof)
@@ -222,6 +224,14 @@ def run(
     claims = _build_claims(site, positions, sub_fc, cards, transit)
     lint_res = lint(claims)
 
+    # 11) 근거원장 — 리포트의 핵심 수치마다 출처·산출식·표본·한계를 등재
+    ledger_ev = _build_evidence(
+        provenance=provenance, cr=cr, bands=bands, anchor=anchor, coef=coef,
+        jeonse=jeonse_res, afford=afford, sub_fc=sub_fc, fid=fid, sa=sa,
+        site=site, liq=liq, scen=scen, scen_id=scen_id, cards=cards,
+        region_stats=region_stats, migration=migration, mobility=mobility,
+        transit=transit, commerce=commerce, unsold=unsold)
+
     inputs = ReportInputs(
         site=site, asof=asof, clean=cr, dataset_meta=dataset_meta,
         bands=bands, positions=positions, afford=afford,
@@ -234,8 +244,121 @@ def run(
         profile_notes=list(profile.notes),
         region_stats=region_stats, commerce=commerce, unsold=unsold,
         migration=migration, mobility=mobility, transit=transit,
-        jeonse=jeonse_res)
+        jeonse=jeonse_res, evidence=ledger_ev)
     return PipelineResult(generate_markdown(inputs), inputs, fid)
+
+
+def _build_evidence(*, provenance, cr, bands, anchor, coef, jeonse, afford,
+                    sub_fc, fid, sa, site, liq, scen, scen_id, cards,
+                    region_stats, migration, mobility, transit, commerce,
+                    unsold) -> EvidenceLedger:
+    """리포트의 핵심 수치를 순서대로 등재한다.
+
+    산출하지 못한 지표도 사유와 함께 남긴다 — 검토하지 않은 것과 표본이 없어
+    수치를 내지 않은 것은 다르고, 독자는 그 둘을 구분할 수 있어야 한다.
+    """
+    ev = EvidenceLedger(provenance)
+    sale_src = ev.find("매매 실거래", "RTMSDataSvcAptTrade", "E01)")
+    rent_src = ev.find("전월세")
+    sub_src = ev.find("청약")
+
+    ev.add("정제 후 사용 거래", f"{len(cr.kept):,}건",
+           f"transactions.clean (룰 {RULES_VERSION})", ClaimGrade.FACT,
+           sale_src, n=len(cr.kept),
+           limitations=[f"제외 {sum(v for k, v in cr.summary.items() if k != '사용'):,}건 "
+                        "— 취소·중복·이상·특수 의심"])
+
+    if anchor > 0:
+        ev.add("품질조정 앵커 (타입 중위 ㎡단가)", f"{anchor/1e4:,.0f}만원/㎡",
+               f"pricing.quality_adjusted_bands · 계수 출처: {coef.source}",
+               ClaimGrade.CALCULATION, sale_src,
+               n=sum(b.n for b in bands if b.level == "타입"),
+               limitations=([] if not coef.source.startswith("초기값")
+                            else ["조정계수 미교정 — `calibrate` 실행 전 예시값"]))
+    else:
+        ev.add_missing("품질조정 앵커", "비교 표본 부족으로 밴드 미산출",
+                       "pricing.quality_adjusted_bands")
+
+    if jeonse is not None and jeonse.ratio_pct is not None:
+        ev.add("전세가율", f"{jeonse.ratio_pct:.1f}%",
+               f"jeonse.analyze (최근 {jeonse.ratio_window_months}개월, 갱신 제외)",
+               ClaimGrade.CALCULATION, rent_src + sale_src,
+               n=jeonse.n_ratio_jeonse, limitations=list(jeonse.limitations))
+    elif jeonse is not None:
+        ev.add_missing("전세가율", "전세·매매 표본 미달로 미산출", "jeonse.analyze")
+    else:
+        ev.add_missing("전세가율", "전월세 데이터 미수집", "jeonse.analyze")
+
+    if afford:
+        shares = [a.scenarios[1]["eligible_share"] for a in afford
+                  if len(a.scenarios) > 1]
+        if shares:
+            ev.add("구매 가능 가구 비율 (기준 금리)",
+                   f"{sum(shares)/len(shares):.0%}",
+                   "affordability.simulate (LTV·DSR·30년 원리금균등)",
+                   ClaimGrade.CALCULATION, n=len(afford),
+                   limitations=["소득 분포는 공공 대체 근사 — 실측 소득으로 교체 권고",
+                                "가용 자기자본 ≈ 연소득×4 가정"])
+
+    if sub_fc.ok:
+        ev.add("청약 경쟁률 전망", f"{sub_fc.lo:.1f}~{sub_fc.hi:.1f} : 1",
+               f"subscription.predict ({sub_fc.model_version}) · 봉인 {fid}",
+               ClaimGrade.FORECAST, sub_src, n=sub_fc.n_cases,
+               limitations=["명목 신뢰수준 기반 구간 — 실적은 예측 이력 장부에서 대조",
+                            f"필터 완화 {sub_fc.filters_relaxed}단계"])
+    else:
+        ev.add_missing("청약 경쟁률 전망", sub_fc.reason, "subscription.predict")
+
+    ratio = sa.adjusted_units / site.total_units if site.total_units else 0.0
+    ev.add("확률조정 공급배수", f"{ratio:.1f}배",
+           f"supply.probability_adjusted ({sa.window_months}개월, 단계별 실현률 가중)",
+           ClaimGrade.CALCULATION, n=sa.n_items if hasattr(sa, "n_items") else None,
+           limitations=["단계별 실현률은 실적 누적 전까지 예시값",
+                        "공급 목록은 설정 입력 — 인허가 통계 연동 시 자동화 가능"])
+
+    if liq is not None and liq.turnover_pct_year is not None:
+        ev.add("연환산 거래 회전율", f"{liq.turnover_pct_year:.1f}%",
+               "liquidity.analyze (거래건수 ÷ 세대수)", ClaimGrade.CALCULATION,
+               sale_src, n=liq.n_trades, limitations=list(liq.limitations))
+    else:
+        ev.add_missing("연환산 거래 회전율", "비교단지 세대수 미입력 또는 거래 부족",
+                       "liquidity.analyze")
+
+    if scen is not None:
+        ev.add("조건부 가격 시나리오",
+               f"{scen.low.price_ppsm/1e4:,.0f}~{scen.high.price_ppsm/1e4:,.0f}만원/㎡",
+               f"scenarios.build ({scen.horizon_months}개월) · 봉인 {scen_id}",
+               ClaimGrade.FORECAST, sale_src,
+               limitations=["전제 기반 구간 — 확률적 신뢰구간이 아님",
+                            "드라이버 탄력성은 교정 전 초기값"])
+
+    # 레이어별 (표시명, 객체, 산출 모듈, 등급, 수집 이력에서 찾을 출처 키워드)
+    for label, obj, method, grade, keys in (
+            ("인구·가구·사업체 추세", region_stats, "connectors.sgis",
+             ClaimGrade.FACT, ("SGIS",)),
+            ("인구이동 순이동", migration, "connectors.migration",
+             ClaimGrade.FACT, ("인구이동", "KOSIS")),
+            ("생활권 자족성", mobility, "connectors.mobility",
+             ClaimGrade.CALCULATION, ()),
+            ("대중교통 접근성", transit, "connectors.transit + geo",
+             ClaimGrade.CALCULATION, ("TAGO", "정류소")),
+            ("생활 인프라 충족도", commerce, "connectors.commerce",
+             ClaimGrade.FACT, ("상가업소", "소상공인")),
+            ("미분양 추세", unsold, "connectors.unsold", ClaimGrade.FACT, ())):
+        if obj is None:
+            ev.add_missing(label, "해당 레이어 미수집 (설정·인증 미지정)", method)
+        else:
+            ev.add(label, obj.summary(), method, grade,
+                   ev.find(*keys) if keys else [],
+                   limitations=list(getattr(obj, "limitations", []) or []))
+
+    if cards:
+        allowed = [c.name for c in cards if c.ad_grade != AdGrade.FORBIDDEN]
+        ev.add("광고 사용 가능 촉매", f"{len(allowed)}건 / 전체 {len(cards)}건",
+               "catalyst.assess (성숙도 단계 × 재정 확보율)", ClaimGrade.INFERENCE,
+               n=len(cards),
+               limitations=["단계·예산은 고시·예산 원문 수기 등록 — 원문 링크 확인 필요"])
+    return ev
 
 
 def _build_claims(site, positions, sub_fc, cards, transit=None) -> list[Claim]:

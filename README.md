@@ -22,7 +22,7 @@ python3 -m report_system coverage   # 예측 이력 장부 적중률
 python3 -m report_system backtest   # 백테스트 단독 실행 → out/backtest.md
 python3 -m report_system calibrate --config my_site.json   # 조정계수 교정 → out/calibration.md
 python3 -m report_system history --site SAMPLE-001   # 회차별 판정·지표 변화
-python3 tests/run_all.py            # 전체 테스트 (227건)
+python3 tests/run_all.py            # 전체 테스트 (246건)
 ```
 
 ### 실데이터 준비 절차
@@ -126,6 +126,7 @@ python3 tests/run_all.py            # 전체 테스트 (227건)
   → verdicts     4개 독립 판정(가격·수요·공급/환금성·촉매) × 4속성 — 단일 점수 합산 없음
   → claims       표현 5등급 + 광고 3등급 + 린트 게이트(금지 표현·무근거 차단)
   → runstore     회차 저장·직전 대비 '변화' 산출 (판정 4속성 완성)
+  → evidence     근거원장: 핵심 수치마다 출처(sha256)·산출식·표본·한계 등재
   → report       진단리포트 조립 → render_html 배포용 단일 HTML
 ```
 
@@ -145,6 +146,7 @@ python3 tests/run_all.py            # 전체 테스트 (227건)
 | 계수는 검증을 통과할 때만 바뀐다 | 헤도닉 회귀 + 홀드아웃 잔차 분산(`calibrate.py`) — 유의성·부호·범위 게이트 통과 후에도 검증 구간이 개선돼야 채택 | 5.4.2 |
 | 상품이 다르면 모델도 다르다 | 상품 프로파일(`profiles.py`) — 비교군·표본·청약 적용 분리 | P2-2 |
 | 판정은 직전 회차와 비교된다 | 실행 이력(`runstore.py`) — 판정별 관련 지표만 델타 표기 | 5.4.5 '변화' |
+| 모든 수치는 되물을 수 있다 | 근거원장(`evidence.py`) — 지표별 출처·수집 해시·산출식·표본·한계. **미산출 항목도 사유와 함께 등재** | 5.10 검증 가능성 |
 
 ## 저장소 구성
 
@@ -154,7 +156,7 @@ report_system/             파이프라인 패키지 (stdlib only)
   geo.py                   좌표 유틸 (직선거리·보행 보정 도보 시간)
   calibrate.py             조정계수 교정 (헤도닉 회귀 + 홀드아웃 검증, stdlib OLS)
   live.py                  설정 JSON + 커넥터 → 리포트
-tests/                     unittest 스위트 (227건) — run_all.py 로 일괄 실행
+tests/                     unittest 스위트 (246건) — run_all.py 로 일괄 실행
 examples/site_config.json  실데이터 실행 설정 예시
 proposal/                  사업 제안서 (md + docx 납품본 + 변환 스크립트)
 docs/                      설계검토보고서 (P0/P1/P2 진단)

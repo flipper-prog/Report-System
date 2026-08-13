@@ -229,6 +229,14 @@ class TestLivePipeline(unittest.TestCase):
         v1 = next(v for v in result.inputs.verdicts if v.name.startswith("①"))
         self.assertTrue(any("전세가율" in r for r in v1.rationale))
 
+        # 근거원장이 실제 수집 이력(해시 포함)에 연결되었는가
+        self.assertIn("근거원장", md)
+        led = result.inputs.evidence
+        self.assertGreaterEqual(led.sourced_count, 1)
+        tx_ev = next(e for e in led.items if e.metric == "정제 후 사용 거래")
+        self.assertTrue(tx_ev.sources[0].sha256)
+        self.assertNotIn(KEY, md)          # 원장에도 인증키가 새지 않는다
+
         # 수집 이력 기록
         prov = json.loads((self.root / "out" / "provenance.json").read_text(encoding="utf-8"))
         self.assertGreaterEqual(len(prov), MONTHS + 2)
