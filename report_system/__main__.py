@@ -225,7 +225,20 @@ def cmd_doctor(config: str, skip_api: bool) -> int:
     print(f"\n결과: OK {ok} · 주의 {warn} · 실패 {fail}")
     if fail:
         print("실패 항목을 해결한 뒤 live 를 실행하십시오.")
-    return 1 if fail else 0
+        return 1
+
+    print("\n다음 단계")
+    print(f"  1) python3 -m report_system live --config {config}")
+    print(f"  2) python3 -m report_system calibrate --config {config}"
+          "   # 계수 교정 (검증 통과 시에만 반영)")
+    print(f"  3) python3 -m report_system live --config {config}"
+          "   # 교정 계수로 재발행")
+    print("  4) python3 -m report_system verify"
+          "                       # 예측 이력 장부 감사")
+    if warn:
+        print(f"\n  주의 {warn}건은 실행을 막지 않습니다 — 해당 레이어가 "
+              "'미수집'으로 표기됩니다.")
+    return 0
 
 
 def cmd_live(config: str, asof: str | None, offline: bool) -> int:

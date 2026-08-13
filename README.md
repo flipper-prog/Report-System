@@ -42,6 +42,23 @@ python3 tests/run_all.py            # 전체 테스트 (364건)
      불일치 시 CLI가 해당 지역의 실제 단지명 목록을 오류 메시지로 안내한다.
    - `site.types[].base_price`: 분양가(원), `option_cost`: 유상옵션·확장비
 
+### 키 수령 직후 실행 순서
+
+```bash
+export DATA_GO_KR_API_KEY='...'        # 공공데이터포털 (E01·E01-R·E02·상권·TAGO 공용)
+export KOSIS_API_KEY='...'             # 선택 — L3 인구이동 · L5 소득 · L13 인허가
+export SGIS_CONSUMER_KEY='...'; export SGIS_CONSUMER_SECRET='...'   # 선택 — L1·L2·L4
+
+python3 -m report_system doctor   --config my_site.json   # ① 설정·연결·단지명 확인
+python3 -m report_system live     --config my_site.json   # ② 첫 리포트
+python3 -m report_system calibrate --config my_site.json  # ③ 조정계수 교정 시도
+python3 -m report_system live     --config my_site.json   # ④ 교정 계수 반영해 재발행
+python3 -m report_system verify                           # ⑤ 장부 감사
+```
+
+③은 계수가 홀드아웃 검증을 통과할 때만 `out/coefficients.json` 을 쓴다.
+통과하지 못하면 예시값이 유지되고 그 사실이 리포트 모델 카드에 남는다.
+
 ### doctor — 실행 전 진단 (키 수령 직후 첫 명령)
 
 `live` 실행 전에 설정·연결·데이터 가용성을 점검한다. API 호출은 엔드포인트당 1회.
@@ -106,7 +123,8 @@ python3 tests/run_all.py            # 전체 테스트 (364건)
 [실데이터] connectors/  molit(E01 매매) · rent(E01-R 전월세) · applyhome(E02 청약)
                         sgis(L1·L2·L4 인구·가구·사업체)
                         migration(L3 인구이동) · mobility(L7 O/D) · transit(L8 접근성)
-                        commerce(L9 상권) · unsold(L12 미분양) · listings(매물·호가)
+                        commerce(L9 상권) · unsold(L12 미분양) · housing(L13 인허가)
+                        income(L5 소득) · listings(매물·호가) · competitors(경쟁 현장)
            └ 캐시·재시도·수집이력(Provenance) → live.py 가 설정(JSON)과 결합
 [샘플]     sample_data(합성)
   ↓
