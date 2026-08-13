@@ -57,7 +57,54 @@ em{color:var(--muted)}
 hr{border:0;border-top:1px solid var(--line);margin:2.5em 0}
 .meta{color:var(--muted);font-size:.85rem;margin-top:3em;
  border-top:1px solid var(--line);padding-top:1em}
+
+/* 목차 — 11개 절짜리 문서는 목차 없이 읽히지 않는다 */
+nav.toc{background:var(--zebra);border:1px solid var(--line);border-radius:6px;
+ padding:14px 18px;margin:1.5em 0 2.5em}
+nav.toc strong{display:block;font-size:.85rem;color:var(--muted);
+ letter-spacing:.04em;margin-bottom:.5em}
+nav.toc ol{margin:0;padding-left:1.3em;columns:2;column-gap:28px}
+nav.toc li{margin:.2em 0;break-inside:avoid}
+nav.toc a{color:var(--fg);text-decoration:none}
+nav.toc a:hover{color:var(--accent);text-decoration:underline}
+h2,h3{scroll-margin-top:12px}
+
+/* 판정·등급 배지 — 표 셀 전체가 해당 단어일 때만 적용한다 */
+.badge{display:inline-block;padding:1px 8px;border-radius:10px;
+ font-size:.82em;font-weight:600;white-space:nowrap}
+.b-pos{background:rgba(31,92,46,.13);color:var(--ok)}
+.b-neg{background:rgba(138,31,31,.13);color:var(--warn)}
+.b-neu{background:var(--code);color:var(--muted)}
+.b-fact{background:rgba(31,56,100,.12);color:var(--accent)}
+.b-fore{background:rgba(138,31,31,.10);color:var(--warn)}
+.b-lim{background:var(--code);color:var(--muted)}
+
+@media print{
+  @page{margin:14mm}
+  body{background:#fff;color:#000;font-size:10.5pt}
+  .wrap{max-width:none;padding:0}
+  nav.toc{display:none}
+  h1{color:#000;border-color:#000}
+  h2{break-after:avoid;page-break-after:avoid}
+  table{font-size:9pt}
+  .tablewrap,table,tr,blockquote{break-inside:avoid;page-break-inside:avoid}
+  th{background:#eee !important}
+  tbody tr:nth-child(even){background:#f7f7f7 !important}
+  a{color:#000;text-decoration:none}
+}
 """
+
+#: 셀 전체가 이 단어일 때만 배지로 바꾼다. 부분 일치는 문장 속 단어를
+#: 잘못 강조하므로 허용하지 않는다.
+_BADGES = {
+    "긍정": "b-pos", "부정": "b-neg", "중립": "b-neu",
+    "확보 가능": "b-pos", "미확보": "b-neg",
+    "조건부": "b-neu", "대체 가능": "b-neu",
+    "FACT": "b-fact", "CALCULATION": "b-fact", "INFERENCE": "b-neu",
+    "FORECAST": "b-fore", "LIMITATION": "b-lim",
+    "사용 가능": "b-pos", "사용 금지": "b-neg", "조건부 사용": "b-neu",
+    "A": "b-pos", "D": "b-neg",
+}
 
 
 def _inline(s: str) -> str:
@@ -81,9 +128,28 @@ def _cells(l: str) -> list[str]:
     return [c.strip() for c in l.strip().strip("|").split("|")]
 
 
+def _cell_html(text: str) -> str:
+    cls = _BADGES.get(text.strip())
+    if cls:
+        return f"<span class='badge {cls}'>{html.escape(text.strip())}</span>"
+    return _inline(text)
+
+
+def _slug(text: str, used: set[str]) -> str:
+    """제목 → 앵커 id. 한글이 그대로 들어가도 되지만 충돌만 피한다."""
+    base = re.sub(r"[^0-9A-Za-z가-힣]+", "-", text).strip("-").lower() or "sec"
+    slug, n = base, 2
+    while slug in used:
+        slug, n = f"{base}-{n}", n + 1
+    used.add(slug)
+    return slug
+
+
 def markdown_to_html(md: str, title: str = "현장 진단리포트") -> str:
     lines = md.split("\n")
     out: list[str] = []
+    toc: list[tuple[str, str]] = []      # (앵커, 제목) — h2 만 목차에 올린다
+    used: set[str] = set()
     i = 0
     while i < len(lines):
         l = lines[i]
@@ -114,17 +180,23 @@ def markdown_to_html(md: str, title: str = "현장 진단리포트") -> str:
             t.append("</tr></thead><tbody>")
             for r in body:
                 r = (r + [""] * len(head))[:len(head)]
-                t.append("<tr>" + "".join(f"<td>{_inline(c)}</td>" for c in r) + "</tr>")
+                t.append("<tr>" + "".join(f"<td>{_cell_html(c)}</td>" for c in r)
+                         + "</tr>")
             t.append("</tbody></table></div>")
             out.append("".join(t))
             continue
 
         if l.startswith("### "):
-            out.append(f"<h3>{_inline(l[4:])}</h3>"); i += 1; continue
+            sid = _slug(l[4:], used)
+            out.append(f"<h3 id='{sid}'>{_inline(l[4:])}</h3>"); i += 1; continue
         if l.startswith("## "):
-            out.append(f"<h2>{_inline(l[3:])}</h2>"); i += 1; continue
+            sid = _slug(l[3:], used)
+            toc.append((sid, l[3:]))
+            out.append(f"<h2 id='{sid}'>{_inline(l[3:])}</h2>"); i += 1; continue
         if l.startswith("# "):
-            out.append(f"<h1>{_inline(l[2:])}</h1>"); i += 1; continue
+            out.append(f"<h1>{_inline(l[2:])}</h1>")
+            out.append("@@TOC@@")          # 제목 직후에 목차를 끼운다
+            i += 1; continue
 
         if re.fullmatch(r"\s*---+\s*", l):
             out.append("<hr>"); i += 1; continue
@@ -148,10 +220,22 @@ def markdown_to_html(md: str, title: str = "현장 진단리포트") -> str:
         out.append(f"<p>{_inline(l)}</p>")
         i += 1
 
+    toc_html = ""
+    if len(toc) >= 3:
+        toc_html = ("<nav class='toc'><strong>목차</strong><ol>"
+                    + "".join(f"<li><a href='#{sid}'>{_inline(t)}</a></li>"
+                              for sid, t in toc)
+                    + "</ol></nav>")
+    body_html = "".join(out)
+    if "@@TOC@@" in body_html:
+        body_html = body_html.replace("@@TOC@@", toc_html, 1)
+    else:
+        body_html = toc_html + body_html
+
     return (
         "<!doctype html><html lang='ko'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
         f"<title>{html.escape(title)}</title><style>{_CSS}</style></head>"
-        f"<body><div class='wrap'>{''.join(out)}"
+        f"<body><div class='wrap'>{body_html}"
         "<p class='meta'>report-system 자동 생성 · 본 문서의 전망은 조건부이며 "
         "가격·수익·계약을 보장하지 않습니다.</p></div></body></html>")

@@ -1,6 +1,7 @@
 """환금성·상품 프로파일·HTML 렌더러 테스트."""
 from __future__ import annotations
 
+import re
 import sys
 import unittest
 from datetime import date, timedelta
@@ -132,7 +133,7 @@ class TestHtmlRenderer(unittest.TestCase):
         md = ("# 제목\n\n## 절\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n"
               "- 항목1\n- 항목2\n\n> 인용문\n")
         h = markdown_to_html(md, "t")
-        for frag in ("<h1>", "<h2>", "<table>", "<th>a</th>", "<td>1</td>",
+        for frag in ("<h1>", "<h2 id=", "<table>", "<th>a</th>", "<td>1</td>",
                      "<li>항목1</li>", "<blockquote>"):
             self.assertIn(frag, h)
 
@@ -148,6 +149,40 @@ class TestHtmlRenderer(unittest.TestCase):
         h = markdown_to_html("# t\n")
         self.assertIn("prefers-color-scheme: dark", h)
         self.assertIn('data-theme="dark"', h)
+
+    def test_toc_built_from_h2_with_anchors(self):
+        md = "# 제목\n\n## 가\n\n## 나\n\n## 다\n\n### 다-1\n"
+        h = markdown_to_html(md)
+        self.assertIn("<nav class='toc'>", h)
+        self.assertEqual(h.count("<li><a href='#"), 3)   # h2 만 목차에
+        self.assertIn("<h2 id=", h)
+        self.assertIn("<h3 id=", h)
+        self.assertNotIn("@@TOC@@", h)
+        # 목차는 제목 바로 뒤에 온다
+        self.assertLess(h.index("</h1>"), h.index("<nav class='toc'>"))
+
+    def test_toc_omitted_for_short_documents(self):
+        h = markdown_to_html("# 제목\n\n## 하나\n\n## 둘\n")
+        self.assertNotIn("<nav class='toc'>", h)
+        self.assertNotIn("@@TOC@@", h)
+
+    def test_duplicate_headings_get_unique_anchors(self):
+        h = markdown_to_html("# t\n\n## 같은 제목\n\n## 같은 제목\n\n## 셋\n")
+        ids = re.findall(r"<h2 id='([^']+)'>", h)
+        self.assertEqual(len(ids), len(set(ids)))
+
+    def test_badges_only_on_exact_cell_match(self):
+        md = ("# t\n\n| 판정 | 설명 |\n|---|---|\n"
+              "| 긍정 | 긍정적인 흐름이 관측됨 |\n| FORECAST | x |\n")
+        h = markdown_to_html(md)
+        self.assertIn("<span class='badge b-pos'>긍정</span>", h)
+        self.assertIn("<span class='badge b-fore'>FORECAST</span>", h)
+        self.assertIn("<td>긍정적인 흐름이 관측됨</td>", h)   # 문장은 그대로
+
+    def test_print_stylesheet_present(self):
+        h = markdown_to_html("# t\n")
+        self.assertIn("@media print", h)
+        self.assertIn("break-inside:avoid", h)
 
     def test_real_report_renders(self):
         from report_system.ledger import ForecastLedger

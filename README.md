@@ -22,7 +22,7 @@ python3 -m report_system coverage   # 예측 이력 장부 적중률
 python3 -m report_system backtest   # 백테스트 단독 실행 → out/backtest.md
 python3 -m report_system calibrate --config my_site.json   # 조정계수 교정 → out/calibration.md
 python3 -m report_system history --site SAMPLE-001   # 회차별 판정·지표 변화
-python3 tests/run_all.py            # 전체 테스트 (251건)
+python3 tests/run_all.py            # 전체 테스트 (256건)
 ```
 
 ### 실데이터 준비 절차
@@ -128,6 +128,7 @@ python3 tests/run_all.py            # 전체 테스트 (251건)
   → runstore     회차 저장·직전 대비 '변화' 산출 (판정 4속성 완성)
   → evidence     근거원장: 핵심 수치마다 출처(sha256)·산출식·표본·한계 등재
   → report       진단리포트 조립 → render_html 배포용 단일 HTML
+                 (목차·판정 배지·인쇄 스타일 포함, 외부 자산 없음)
 ```
 
 ## 설계 원칙 (제안서와의 대응)
@@ -156,7 +157,7 @@ report_system/             파이프라인 패키지 (stdlib only)
   geo.py                   좌표 유틸 (직선거리·보행 보정 도보 시간)
   calibrate.py             조정계수 교정 (헤도닉 회귀 + 홀드아웃 검증, stdlib OLS)
   live.py                  설정 JSON + 커넥터 → 리포트
-tests/                     unittest 스위트 (251건) — run_all.py 로 일괄 실행
+tests/                     unittest 스위트 (256건) — run_all.py 로 일괄 실행
 examples/site_config.json  실데이터 실행 설정 예시
 proposal/                  사업 제안서 (md + docx 납품본 + 변환 스크립트)
 docs/                      설계검토보고서 (P0/P1/P2 진단)
