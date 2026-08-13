@@ -116,7 +116,8 @@ class TestFullStack(unittest.TestCase):
                         "실부담 시뮬레이션", "청약 수요 전망", "모델 검증",
                         "확률조정 공급", "환금성", "지역 기반 통계",
                         "주택건설실적",
-                        "개발계획 촉매카드", "조기경보", "표현 린트", "근거원장"):
+                        "개발계획 촉매카드", "조기경보", "표현 린트", "근거원장",
+                        "분양가 결정 시뮬레이션"):
             self.assertIn(section, md, f"'{section}' 절이 누락됨")
 
     def test_all_four_verdicts_cite_their_layers(self):

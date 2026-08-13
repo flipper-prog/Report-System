@@ -24,6 +24,7 @@ from .models import (AdGrade, CatalystPlan, Claim, ClaimGrade, Comparable,
                      DatasetMeta, FieldFeedback, ListingSnapshot, RentRecord,
                      Site, SubscriptionRecord, SupplyItem, Transaction,
                      total_acquisition_cost)
+from .price_decision import sweep as price_sweep
 from .pricing import (DEFAULT_COEF, Coefficients, market_positions,
                       quality_adjusted_bands)
 from .profiles import applicability_note, get as get_profile
@@ -120,6 +121,12 @@ def run(
             model_version=sub_fc.model_version, data_asof=str(asof),
             payload={"gap_pct": round(gap_pct, 2), "concurrent": concurrent,
                      "n_cases": sub_fc.n_cases})
+
+    # 5-2) 분양가 결정 시뮬레이션 — "그래서 얼마로?"에 같은 근거로 답한다
+    decision = None
+    if profile.subscription_applicable and bands and market_ppsm > 0:
+        decision = price_sweep(site, bands, market_ppsm, incomes, sub_history,
+                               concurrent)
 
     # 6) 공급
     sa = probability_adjusted(supply_items, window_months=36)
@@ -238,7 +245,7 @@ def run(
         site=site, liq=liq, scen=scen, scen_id=scen_id, cards=cards,
         region_stats=region_stats, migration=migration, mobility=mobility,
         transit=transit, commerce=commerce, unsold=unsold, housing=housing,
-        income_stats=income_stats)
+        income_stats=income_stats, decision=decision)
 
     inputs = ReportInputs(
         site=site, asof=asof, clean=cr, dataset_meta=dataset_meta,
@@ -253,14 +260,14 @@ def run(
         region_stats=region_stats, commerce=commerce, unsold=unsold,
         migration=migration, mobility=mobility, transit=transit,
         jeonse=jeonse_res, evidence=ledger_ev, housing=housing,
-        income_stats=income_stats)
+        income_stats=income_stats, price_decision=decision)
     return PipelineResult(generate_markdown(inputs), inputs, fid)
 
 
 def _build_evidence(*, provenance, cr, bands, anchor, coef, jeonse, afford,
                     sub_fc, fid, sa, site, liq, scen, scen_id, cards,
                     region_stats, migration, mobility, transit, commerce,
-                    unsold, housing, income_stats) -> EvidenceLedger:
+                    unsold, housing, income_stats, decision) -> EvidenceLedger:
     """리포트의 핵심 수치를 순서대로 등재한다.
 
     산출하지 못한 지표도 사유와 함께 남긴다 — 검토하지 않은 것과 표본이 없어
@@ -368,6 +375,15 @@ def _build_evidence(*, provenance, cr, bands, anchor, coef, jeonse, afford,
             ev.add(label, obj.summary(), method, grade,
                    ev.find(*keys) if keys else [],
                    limitations=list(getattr(obj, "limitations", []) or []))
+
+    if decision is not None and decision.recommended is not None:
+        r = decision.recommended
+        ev.add("분양가 권고", f"현재 대비 {r.multiplier:+.1%}",
+               f"price_decision.sweep — 기준: {decision.criteria}",
+               ClaimGrade.INFERENCE, n=len(decision.options),
+               limitations=list(decision.limitations))
+    elif decision is not None:
+        ev.add_missing("분양가 권고", decision.reason, "price_decision.sweep")
 
     if cards:
         allowed = [c.name for c in cards if c.ad_grade != AdGrade.FORBIDDEN]

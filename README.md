@@ -24,7 +24,7 @@ python3 -m report_system verify     # 장부 전수 감사 — 봉인 해시 재
 python3 -m report_system backtest   # 백테스트 단독 실행 → out/backtest.md
 python3 -m report_system calibrate --config my_site.json   # 조정계수 교정 → out/calibration.md
 python3 -m report_system history --site SAMPLE-001   # 회차별 판정·지표 변화
-python3 tests/run_all.py            # 전체 테스트 (319건)
+python3 tests/run_all.py            # 전체 테스트 (336건)
 ```
 
 ### 실데이터 준비 절차
@@ -116,6 +116,7 @@ python3 tests/run_all.py            # 전체 테스트 (319건)
   ├→ pricing     품질조정 가격 밴드(타입·층구간, 분양권 우선 비교군, 표본 미달 시 롤업)
   ├→ jeonse      전세가율·전월세전환율(하방 완충 두께) → 판정 ① 보강
   ├→ affordability 실부담 시뮬레이터(LTV·DSR·금리 시나리오, 구매 가능 가구 비율)
+  ├→ price_decision 분양가 후보별 밴드·수요·청약·미달 위험 → 규칙 기반 권고
   │    └→ income   실측 중위소득으로 분포 중심 고정(산포는 가정으로 명시)
   ├→ subscription 청약경쟁률 구간 예측(유사 사례 경험분포, 표본 미달 시 정성 전환)
   │    └→ ledger  예측 이력 장부: 봉인(불변 트리거)·실적 대조·적중률(coverage)
@@ -153,6 +154,7 @@ python3 tests/run_all.py            # 전체 테스트 (319건)
 | 계수는 검증을 통과할 때만 바뀐다 | 헤도닉 회귀 + 홀드아웃 잔차 분산(`calibrate.py`) — 유의성·부호·범위 게이트 통과 후에도 검증 구간이 개선돼야 채택 | 5.4.2 |
 | 상품이 다르면 모델도 다르다 | 상품 프로파일(`profiles.py`) — 비교군·표본·청약 적용 분리 | P2-2 |
 | 판정은 직전 회차와 비교된다 | 실행 이력(`runstore.py`) — 판정별 관련 지표만 델타 표기 | 5.4.5 '변화' |
+| 권고는 예언이 아니라 규칙이다 | 분양가 결정 시뮬레이터(`price_decision.py`) — 판단 기준을 문장으로 함께 내고, 조건을 만족하는 후보가 없으면 권고하지 않는다 | 5.6 가격 전략 |
 | 모든 수치는 되물을 수 있다 | 근거원장(`evidence.py`) — 지표별 출처·수집 해시·산출식·표본·한계. **미산출 항목도 사유와 함께 등재** | 5.10 검증 가능성 |
 
 ## 저장소 구성
@@ -163,7 +165,7 @@ report_system/             파이프라인 패키지 (stdlib only)
   geo.py                   좌표 유틸 (직선거리·보행 보정 도보 시간)
   calibrate.py             조정계수 교정 (헤도닉 회귀 + 홀드아웃 검증, stdlib OLS)
   live.py                  설정 JSON + 커넥터 → 리포트
-tests/                     unittest 스위트 (319건) — run_all.py 로 일괄 실행
+tests/                     unittest 스위트 (336건) — run_all.py 로 일괄 실행
 examples/site_config.json  실데이터 실행 설정 예시
 proposal/                  사업 제안서 (md + docx 납품본 + 변환 스크립트)
 docs/                      설계검토보고서 (P0/P1/P2 진단)

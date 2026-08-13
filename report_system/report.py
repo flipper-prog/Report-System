@@ -64,6 +64,7 @@ class ReportInputs:
     evidence: object | None = None
     housing: object | None = None
     income_stats: object | None = None
+    price_decision: object | None = None
 
     def __post_init__(self):
         for f in ("backtests", "coverage_rows", "model_cards", "drifts",
@@ -284,6 +285,17 @@ def generate_markdown(x: ReportInputs) -> str:
         for mc in x.model_cards:
             add(mc.as_markdown())
             add("")
+
+    # 6-5. 분양가 결정 시뮬레이션
+    if x.price_decision is not None:
+        add("## 6-5. 분양가 결정 시뮬레이션 [FORECAST]")
+        add("")
+        add("*진단은 '지금 가격이 어디쯤인가'를 말한다. 결정해야 하는 것은 "
+            "'얼마로 잡을 것인가'다. 후보 가격대마다 밴드 위치·구매 가능 가구·"
+            "청약 전망·미달 위험을 같은 근거로 계산한 결과다.*")
+        add("")
+        add(x.price_decision.as_markdown())
+        add("")
 
     # 7. 공급
     add("## 7. 확률조정 공급")
