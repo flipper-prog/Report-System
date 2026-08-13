@@ -122,5 +122,6 @@
   "stations_file": "examples/stations_sample.csv",
   "transit_radius_m": 500,
   "housing_file": "examples/housing_sample.csv",
-  "income_file": "examples/income_sample.csv"
+  "income_file": "examples/income_sample.csv",
+  "competitors_file": "examples/competitors_sample.csv"
 }

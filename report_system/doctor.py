@@ -103,6 +103,7 @@ def check_config(cfg: dict[str, Any]) -> list[Check]:
 #: 선택 레이어 — (설정 키, 표시명, 파일 여부)
 OPTIONAL_LAYERS = [
     ("listings_file", "매물·호가 선행 신호", True),
+    ("competitors_file", "경쟁 현장 스냅숏", True),
     ("income_file", "L5 실측 소득 (파일)", True),
     ("kosis_income", "L5 실측 소득 (KOSIS API)", False),
     ("sgis_adm_cd", "L1·L2·L4 인구·가구·사업체 (SGIS)", False),

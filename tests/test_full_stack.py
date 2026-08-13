@@ -92,6 +92,8 @@ class TestFullStack(unittest.TestCase):
             unsold=unsold.load(str(tmp / "u.csv")),
             housing=sd.build_housing(),
             income_stats=sd.build_income_stats(),
+            competitors_old=sd.build_competitors()[0],
+            competitors_new=sd.build_competitors()[1],
             migration=migration.load(str(tmp / "m.csv"), population=300_000),
             mobility=mobility.load(str(tmp / "od.csv"), focus="강남구", purpose="출근"),
             transit=transit.collect(

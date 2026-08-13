@@ -254,7 +254,8 @@ def run(
         site=site, liq=liq, scen=scen, scen_id=scen_id, cards=cards,
         region_stats=region_stats, migration=migration, mobility=mobility,
         transit=transit, commerce=commerce, unsold=unsold, housing=housing,
-        income_stats=income_stats, decision=decision)
+        income_stats=income_stats, decision=decision,
+        competitor_alerts=[a for a in alerts if a.category == "경쟁 현장"])
 
     inputs = ReportInputs(
         site=site, asof=asof, clean=cr, dataset_meta=dataset_meta,
@@ -276,7 +277,8 @@ def run(
 def _build_evidence(*, provenance, cr, bands, anchor, coef, jeonse, afford,
                     sub_fc, fid, sa, site, liq, scen, scen_id, cards,
                     region_stats, migration, mobility, transit, commerce,
-                    unsold, housing, income_stats, decision) -> EvidenceLedger:
+                    unsold, housing, income_stats, decision,
+                    competitor_alerts) -> EvidenceLedger:
     """리포트의 핵심 수치를 순서대로 등재한다.
 
     산출하지 못한 지표도 사유와 함께 남긴다 — 검토하지 않은 것과 표본이 없어
@@ -397,6 +399,18 @@ def _build_evidence(*, provenance, cr, bands, anchor, coef, jeonse, afford,
                limitations=list(decision.limitations))
     elif decision is not None:
         ev.add_missing("분양가 권고", decision.reason, "price_decision.sweep")
+
+    if competitor_alerts is not None:
+        if competitor_alerts:
+            ev.add("경쟁 현장 변동", f"{len(competitor_alerts)}건 감지",
+                   "competitor.scan (가격 2%·잔여 20% 임계, 수집 30일 신선도)",
+                   ClaimGrade.FACT, n=len(competitor_alerts),
+                   limitations=["경쟁 현장 자료는 수기 수집 — 수집 시점·정확도가 "
+                                "현장 담당자에게 의존 [LIMITATION]"])
+        else:
+            ev.add_missing("경쟁 현장 변동",
+                           "스냅숏 미제공 또는 회차가 1개 — 변화 감지 불가",
+                           "competitor.scan")
 
     if cards:
         allowed = [c.name for c in cards if c.ad_grade != AdGrade.FORBIDDEN]

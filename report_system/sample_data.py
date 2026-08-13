@@ -295,3 +295,29 @@ def build_commerce() -> "CommerceStats":
     st.limitations.append(
         "카드소비 금액은 공개 API 미제공 — 업소 수로만 활동성을 대리 측정 [LIMITATION]")
     return st
+
+
+def build_competitors() -> "tuple[list, list]":
+    """경쟁 현장 스냅숏 합성 표본 — (직전 회차, 최신 회차).
+
+    가격 인하·혜택 추가·잔여 세대 증가가 각각 한 건씩 감지되도록 구성한다.
+    """
+    from .competitor import CompetitorSnapshot
+    old = [
+        CompetitorSnapshot("인근 A현장", ASOF - timedelta(days=28),
+                           10_800_000, 142, ["중도금 무이자"]),
+        CompetitorSnapshot("인근 B현장", ASOF - timedelta(days=28),
+                           10_250_000, 86, []),
+        CompetitorSnapshot("인근 C현장", ASOF - timedelta(days=28),
+                           11_100_000, 201, ["발코니 무상확장"]),
+    ]
+    new = [
+        CompetitorSnapshot("인근 A현장", ASOF - timedelta(days=7),
+                           10_400_000, 196, ["중도금 무이자", "이사비 지원"],
+                           note="가격 인하 확인"),
+        CompetitorSnapshot("인근 B현장", ASOF - timedelta(days=7),
+                           10_300_000, 58, []),
+        CompetitorSnapshot("인근 C현장", ASOF - timedelta(days=45),
+                           11_100_000, 188, ["발코니 무상확장"]),   # 신선도 경고
+    ]
+    return old, new

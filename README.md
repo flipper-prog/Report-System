@@ -24,7 +24,7 @@ python3 -m report_system verify     # 장부 전수 감사 — 봉인 해시 재
 python3 -m report_system backtest   # 백테스트 단독 실행 → out/backtest.md
 python3 -m report_system calibrate --config my_site.json   # 조정계수 교정 → out/calibration.md
 python3 -m report_system history --site SAMPLE-001   # 회차별 판정·지표 변화
-python3 tests/run_all.py            # 전체 테스트 (349건)
+python3 tests/run_all.py            # 전체 테스트 (364건)
 ```
 
 ### 실데이터 준비 절차
@@ -72,6 +72,7 @@ python3 tests/run_all.py            # 전체 테스트 (349건)
 | L8 교통망·접근성 | `transit` (TAGO 정류소 + 역 좌표 파일) | `DATA_GO_KR_API_KEY` | `transit_radius_m`, `stations_file` |
 | L9 상권 | `commerce` (소상공인공단) | `DATA_GO_KR_API_KEY` | `commerce_radius_m` |
 | 매물·호가 | `listings` (파일) | — | `listings_file` |
+| 경쟁 현장 | `competitors` (파일) | — | `competitors_file` |
 | L6·L10 (유동·카드) | 민간 라이선스 별도 협의 | — | — |
 
 선택 레이어는 설정 키가 없으면 **건너뛰고 리포트 커버리지표에 '미수집'으로 표기**된다.
@@ -96,7 +97,7 @@ python3 tests/run_all.py            # 전체 테스트 (349건)
 | 응답 형식 | 실거래는 신형(`aptNm`)·구형(`아파트`) 태그 모두 파싱. 해제 거래(`cdealType=O`)는 정제 단계에서 제거·집계 |
 | 미제공 필드 | 청약홈은 가격 갭·동시 공급을 제공하지 않음 → 해당 조건을 매칭에서 제외하고 리포트에 LIMITATION 표기 |
 | 매물·호가 | 무료 공개 API 없음 → `listings_file`(CSV/JSON) 로 적재. 스키마: `asof,listings,ask_ppsm,traded_ppsm`. 부적합 행은 사유와 함께 제외되고 기준일 이후 관측은 자동 배제 (예시: `examples/listings_sample.csv`) |
-| 파일 적재 스키마 | 인구이동 `period,moved_in,moved_out[,from_region]` · O/D `origin,destination,trips[,purpose]` · 역 좌표 `name,lat,lng[,lines]` · 미분양 `month,unsold[,after_done]` · 주택건설실적 `period,permit[,start,sale,done]` · 소득 `period,median_income[,mean_income,n_filers]` (예시 파일 모두 `examples/`) |
+| 파일 적재 스키마 | 인구이동 `period,moved_in,moved_out[,from_region]` · O/D `origin,destination,trips[,purpose]` · 역 좌표 `name,lat,lng[,lines]` · 미분양 `month,unsold[,after_done]` · 주택건설실적 `period,permit[,start,sale,done]` · 소득 `period,median_income[,mean_income,n_filers]` · 경쟁 현장 `name,asof,price_per_m2,remaining_units[,incentives,note]` (예시 파일 모두 `examples/`) |
 | 접근성 표현 통제 | 최근접역이 도보 10분 이내일 때만 '도보 n분' 문장이 생성된다. 그 밖에는 문장을 만들지 않고 리포트에 **'역세권 표현 사용 불가'** 와 실측 거리를 표기한다 |
 
 ## 아키텍처
@@ -165,7 +166,7 @@ report_system/             파이프라인 패키지 (stdlib only)
   geo.py                   좌표 유틸 (직선거리·보행 보정 도보 시간)
   calibrate.py             조정계수 교정 (헤도닉 회귀 + 홀드아웃 검증, stdlib OLS)
   live.py                  설정 JSON + 커넥터 → 리포트
-tests/                     unittest 스위트 (349건) — run_all.py 로 일괄 실행
+tests/                     unittest 스위트 (364건) — run_all.py 로 일괄 실행
 examples/site_config.json  실데이터 실행 설정 예시
 proposal/                  사업 제안서 (md + docx 납품본 + 변환 스크립트)
 docs/                      설계검토보고서 (P0/P1/P2 진단)
@@ -185,7 +186,8 @@ out/                       생성 산출물·캐시·장부 (git 미추적)
 | 조정계수(연식·층·시점) | **교정 엔진 구현** — `calibrate` 가 헤도닉 회귀로 추정하고 홀드아웃 검증을 통과할 때만 교체. 미교정 상태는 모델 카드에 '예시값'으로 표기 |
 | 단계 실현률·DSR 가정 | 파라미터 노출. **실적 누적 전까지 예시값** |
 | 드리프트·상품 프로파일·커버리지표 | **구현 완료** (P2-1·P2-2·P2-4) |
-| 경쟁 현장 모니터링·정제 룰 버전화 | **구현 완료** (P2-6·P2-3) |
+| 경쟁 현장 모니터링 | **파일 수집 연동 완료** — 회차 2개 이상이면 가격·혜택·잔여 세대 변화를 조기경보로 승격. 공개 API 부재로 수기 수집 자료 (P2-6) |
+| 정제 룰 버전화 | **구현 완료** (P2-3) |
 
 실데이터 실행 시 조정계수가 미교정 상태라는 점은 리포트의 가정·한계 절에 표기되며,
 예측 이력 장부(`coverage`)에 실적이 누적되면 적중률 기준으로 재보정한다.

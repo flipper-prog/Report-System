@@ -13,6 +13,8 @@ from datetime import date, timedelta
 from .connectors.applyhome import fetch_subscription_history
 from .connectors.base import Fetcher, api_key
 from .connectors.commerce import CommerceApiError, fetch_radius
+from .connectors.competitors import CompetitorFormatError
+from .connectors.competitors import load as load_competitors
 from .connectors.income import IncomeFormatError, fetch_kosis as fetch_income_kosis
 from .connectors.income import load as load_income
 from .connectors.housing import HousingFormatError, fetch_kosis as fetch_housing_kosis
@@ -274,6 +276,16 @@ def run_live(config_path: str, asof: date | None = None,
         except IncomeFormatError as e:
             print(f"[안내] 소득 수집 생략 — {e}")
 
+    # 경쟁 현장 스냅숏 (P2-6) — 수기 수집 자료. 회차가 2개 이상이어야 변화를 본다.
+    comp_old, comp_new = [], []
+    if cfg.get("competitors_file"):
+        try:
+            rounds = load_competitors(cfg["competitors_file"], until=asof)
+            comp_old, comp_new = rounds.previous, rounds.latest
+            print(f"[안내] 경쟁 현장 — {rounds.summary()}")
+        except CompetitorFormatError as e:
+            print(f"[안내] 경쟁 현장 수집 생략 — {e}")
+
     result = run(
         site=_site_from(cfg),
         comps=comps,
@@ -303,7 +315,8 @@ def run_live(config_path: str, asof: date | None = None,
         rents=rents,
         coef=load_coefficients(cfg.get("coefficients_file", "out/coefficients.json")),
         provenance=fetcher.provenance, housing=housing,
-        income_stats=income_stats)
+        income_stats=income_stats,
+        competitors_old=comp_old, competitors_new=comp_new)
 
     pathlib.Path("out").mkdir(exist_ok=True)
     pathlib.Path("out/provenance.json").write_text(

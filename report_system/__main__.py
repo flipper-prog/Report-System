@@ -52,6 +52,7 @@ def cmd_generate(full: bool = False) -> int:
     cat_old = sd.build_catalysts()
     cat_old[0].budget_secured = 450_000_000_000
     extra = _demo_layers() if full else {}
+    comp_old, comp_new = sd.build_competitors()
 
     result = run(
         site=sd.build_site(),
@@ -69,6 +70,7 @@ def cmd_generate(full: bool = False) -> int:
         asof=sd.ASOF,
         ledger=ledger,
         store=RunStore(str(OUT / 'runs.db')),
+        competitors_old=comp_old, competitors_new=comp_new,
         **extra,
     )
     stem = "sample_report_full" if full else "sample_report"
