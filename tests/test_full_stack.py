@@ -91,6 +91,7 @@ class TestFullStack(unittest.TestCase):
                 "k", 127.0, 37.5),
             unsold=unsold.load(str(tmp / "u.csv")),
             housing=sd.build_housing(),
+            income_stats=sd.build_income_stats(),
             migration=migration.load(str(tmp / "m.csv"), population=300_000),
             mobility=mobility.load(str(tmp / "od.csv"), focus="강남구", purpose="출근"),
             transit=transit.collect(
@@ -159,7 +160,7 @@ class TestFullStack(unittest.TestCase):
     # ── 커버리지표 ──────────────────────────────────────────────────────────
     def test_coverage_table_has_no_unexpected_gaps(self):
         rows = {r.layer.split()[0]: r for r in self.res.inputs.coverage_rows}
-        # 민간 라이선스(L6·L10)와 실측 소득(L5) 외에는 미확보가 없어야 한다
+        # 민간 라이선스(L6·L10) 외에는 미확보가 없어야 한다
         gaps = [k for k, r in rows.items()
                 if r.coverage.value == "미확보" and k not in ("L6", "L10")]
         self.assertEqual(gaps, [], f"예상 밖 미확보 레이어: {gaps}")

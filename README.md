@@ -24,7 +24,7 @@ python3 -m report_system verify     # 장부 전수 감사 — 봉인 해시 재
 python3 -m report_system backtest   # 백테스트 단독 실행 → out/backtest.md
 python3 -m report_system calibrate --config my_site.json   # 조정계수 교정 → out/calibration.md
 python3 -m report_system history --site SAMPLE-001   # 회차별 판정·지표 변화
-python3 tests/run_all.py            # 전체 테스트 (298건)
+python3 tests/run_all.py            # 전체 테스트 (319건)
 ```
 
 ### 실데이터 준비 절차
@@ -65,6 +65,7 @@ python3 tests/run_all.py            # 전체 테스트 (298건)
 | L12 청약 | `applyhome` (청약홈 E02) | 〃 | `subscription_regions` |
 | L12 미분양 | `unsold` (파일) | — | `unsold_file` |
 | L13 주택건설실적 | `housing` (KOSIS 또는 파일) | `KOSIS_API_KEY` (API 경로만) | `kosis_housing` 또는 `housing_file` |
+| L5 소득·구매력 | `income` (KOSIS 또는 파일) | `KOSIS_API_KEY` (API 경로만) | `kosis_income` 또는 `income_file` |
 | L1·L2·L4 인구·가구·사업체 | `sgis` (통계청) | `SGIS_CONSUMER_KEY`/`SECRET` | `sgis_adm_cd`, `sgis_years` |
 | L3 인구이동 | `migration` (KOSIS 또는 파일) | `KOSIS_API_KEY` (API 경로만) | `kosis_migration` 또는 `migration_file`, `region_population` |
 | L7 생활이동·O/D | `mobility` (파일) | — | `mobility_file`, `mobility_focus`, `mobility_purpose` |
@@ -95,7 +96,7 @@ python3 tests/run_all.py            # 전체 테스트 (298건)
 | 응답 형식 | 실거래는 신형(`aptNm`)·구형(`아파트`) 태그 모두 파싱. 해제 거래(`cdealType=O`)는 정제 단계에서 제거·집계 |
 | 미제공 필드 | 청약홈은 가격 갭·동시 공급을 제공하지 않음 → 해당 조건을 매칭에서 제외하고 리포트에 LIMITATION 표기 |
 | 매물·호가 | 무료 공개 API 없음 → `listings_file`(CSV/JSON) 로 적재. 스키마: `asof,listings,ask_ppsm,traded_ppsm`. 부적합 행은 사유와 함께 제외되고 기준일 이후 관측은 자동 배제 (예시: `examples/listings_sample.csv`) |
-| 파일 적재 스키마 | 인구이동 `period,moved_in,moved_out[,from_region]` · O/D `origin,destination,trips[,purpose]` · 역 좌표 `name,lat,lng[,lines]` · 미분양 `month,unsold[,after_done]` · 주택건설실적 `period,permit[,start,sale,done]` (예시 파일 모두 `examples/`) |
+| 파일 적재 스키마 | 인구이동 `period,moved_in,moved_out[,from_region]` · O/D `origin,destination,trips[,purpose]` · 역 좌표 `name,lat,lng[,lines]` · 미분양 `month,unsold[,after_done]` · 주택건설실적 `period,permit[,start,sale,done]` · 소득 `period,median_income[,mean_income,n_filers]` (예시 파일 모두 `examples/`) |
 | 접근성 표현 통제 | 최근접역이 도보 10분 이내일 때만 '도보 n분' 문장이 생성된다. 그 밖에는 문장을 만들지 않고 리포트에 **'역세권 표현 사용 불가'** 와 실측 거리를 표기한다 |
 
 ## 아키텍처
@@ -115,6 +116,7 @@ python3 tests/run_all.py            # 전체 테스트 (298건)
   ├→ pricing     품질조정 가격 밴드(타입·층구간, 분양권 우선 비교군, 표본 미달 시 롤업)
   ├→ jeonse      전세가율·전월세전환율(하방 완충 두께) → 판정 ① 보강
   ├→ affordability 실부담 시뮬레이터(LTV·DSR·금리 시나리오, 구매 가능 가구 비율)
+  │    └→ income   실측 중위소득으로 분포 중심 고정(산포는 가정으로 명시)
   ├→ subscription 청약경쟁률 구간 예측(유사 사례 경험분포, 표본 미달 시 정성 전환)
   │    └→ ledger  예측 이력 장부: 봉인(불변 트리거)·실적 대조·적중률(coverage)
   ├→ timeseries  월별 추세·국면 전환 감지 → scenarios 하방/기준/상방 + 민감도
@@ -161,7 +163,7 @@ report_system/             파이프라인 패키지 (stdlib only)
   geo.py                   좌표 유틸 (직선거리·보행 보정 도보 시간)
   calibrate.py             조정계수 교정 (헤도닉 회귀 + 홀드아웃 검증, stdlib OLS)
   live.py                  설정 JSON + 커넥터 → 리포트
-tests/                     unittest 스위트 (298건) — run_all.py 로 일괄 실행
+tests/                     unittest 스위트 (319건) — run_all.py 로 일괄 실행
 examples/site_config.json  실데이터 실행 설정 예시
 proposal/                  사업 제안서 (md + docx 납품본 + 변환 스크립트)
 docs/                      설계검토보고서 (P0/P1/P2 진단)
@@ -177,7 +179,7 @@ out/                       생성 산출물·캐시·장부 (git 미추적)
 | 인구·가구·사업체(L1·L2·L4)·인구이동(L3)·접근성(L8)·상권(L9) | **구현 완료** — 각 커넥터의 공간 해상도·환산 한계는 리포트에 병기 |
 | 공급 파이프라인 (L13) | **인허가 실적 연동** — 설정 공급 목록을 시군구 인허가와 교차검증하고, 인허가 급증 시 중기 공급 압력을 판정 ③에 반영 |
 | 생활이동·O/D (L7) | **파일 적재 구현** — KTDB·통신사 자료는 계약·승인 대상. 파일 확보 시 즉시 활성화 |
-| 소득·구매력 (L5) | 공공 대체 로그정규 근사 — 설정의 분포 파라미터 기반, LIMITATION 표기 |
+| 소득·구매력 (L5) | **실측 중위소득 연동** — 분포 중심을 시군구 실측값으로 고정. 산포(σ)와 분포 형태(로그정규)는 여전히 가정이며 리포트에 병기 |
 | 조정계수(연식·층·시점) | **교정 엔진 구현** — `calibrate` 가 헤도닉 회귀로 추정하고 홀드아웃 검증을 통과할 때만 교체. 미교정 상태는 모델 카드에 '예시값'으로 표기 |
 | 단계 실현률·DSR 가정 | 파라미터 노출. **실적 누적 전까지 예시값** |
 | 드리프트·상품 프로파일·커버리지표 | **구현 완료** (P2-1·P2-2·P2-4) |

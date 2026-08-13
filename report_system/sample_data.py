@@ -260,3 +260,11 @@ def build_housing() -> "HousingSeries":
     s.limitations.append(
         "인허가는 시군구 단위 실적으로, 현장 생활권 공급과 범위가 다르다 [LIMITATION]")
     return s
+
+
+def build_income_stats() -> "IncomeStats":
+    """실측 소득 통계 합성 표본 (generate --full 시연용)."""
+    from .connectors.income import IncomeStats, _validate
+    return _validate(IncomeStats(
+        period="2024", median_income=46_800_000, mean_income=59_400_000,
+        n_filers=138_000, sigma=0.45, source="소득 통계 합성 표본"))

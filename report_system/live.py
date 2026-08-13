@@ -13,6 +13,8 @@ from datetime import date, timedelta
 from .connectors.applyhome import fetch_subscription_history
 from .connectors.base import Fetcher, api_key
 from .connectors.commerce import CommerceApiError, fetch_radius
+from .connectors.income import IncomeFormatError, fetch_kosis as fetch_income_kosis
+from .connectors.income import load as load_income
 from .connectors.housing import HousingFormatError, fetch_kosis as fetch_housing_kosis
 from .connectors.housing import load as load_housing
 from .connectors.listings import ListingsFormatError, load as load_listings
@@ -256,6 +258,22 @@ def run_live(config_path: str, asof: date | None = None,
         except HousingFormatError as e:
             print(f"[안내] 주택건설실적 수집 생략 — {e}")
 
+    # L5 소득 — KOSIS API(kosis_income) 또는 파일(income_file).
+    # 확보되면 실부담 시뮬레이션의 소득 분포 중심이 실측값으로 고정된다.
+    income_stats = None
+    sigma = float(cfg.get("income_model", {}).get("sigma", 0.45))
+    if cfg.get("kosis_income"):
+        try:
+            income_stats = fetch_income_kosis(fetcher, kosis_key(),
+                                              dict(cfg["kosis_income"]), sigma)
+        except (KosisApiError, IncomeFormatError) as e:
+            print(f"[안내] 소득(KOSIS) 수집 생략 — {e}")
+    if income_stats is None and cfg.get("income_file"):
+        try:
+            income_stats = load_income(cfg["income_file"], sigma)
+        except IncomeFormatError as e:
+            print(f"[안내] 소득 수집 생략 — {e}")
+
     result = run(
         site=_site_from(cfg),
         comps=comps,
@@ -269,8 +287,12 @@ def run_live(config_path: str, asof: date | None = None,
                                    region_stats=region_stats,
                                    commerce=commerce, unsold=unsold,
                                    migration=migration, mobility=mobility,
-                                   transit=transit, rent_n=len(rents)),
-        incomes=_incomes_from(cfg),
+                                   transit=transit, rent_n=len(rents),
+                                   income_stats=income_stats),
+        incomes=(income_stats.sample(
+            n=int(cfg.get('income_model', {}).get('n', 500)),
+            seed=int(cfg.get('income_model', {}).get('seed', 7)))
+            if income_stats is not None else _incomes_from(cfg)),
         feedback=_feedback_from(cfg),
         listings=listings_pair,
         asof=asof,
@@ -280,7 +302,8 @@ def run_live(config_path: str, asof: date | None = None,
         migration=migration, mobility=mobility, transit=transit,
         rents=rents,
         coef=load_coefficients(cfg.get("coefficients_file", "out/coefficients.json")),
-        provenance=fetcher.provenance, housing=housing)
+        provenance=fetcher.provenance, housing=housing,
+        income_stats=income_stats)
 
     pathlib.Path("out").mkdir(exist_ok=True)
     pathlib.Path("out/provenance.json").write_text(
@@ -292,7 +315,7 @@ def _dataset_meta(sub_hist_n: int, tx_n: int,
                   listings_note: str = "",
                   region_stats=None, commerce=None, unsold=None,
                   migration=None, mobility=None, transit=None,
-                  rent_n: int = 0) -> list[DatasetMeta]:
+                  rent_n: int = 0, income_stats=None) -> list[DatasetMeta]:
     """수집 결과 기반의 적합성 평가(라이브 기본값)."""
     return [
         DatasetMeta("L11 실거래 (국토부 E01)", 24, 24, 18, 15, 15,
@@ -304,8 +327,11 @@ def _dataset_meta(sub_hist_n: int, tx_n: int,
                      note="collect_rent=false 또는 비교단지 전월세 0건")),
         DatasetMeta("L12 청약 이력 (청약홈 E02)", 20, 22, 15, 14, 15,
                     note=f"수집 {sub_hist_n}건 — 가격 갭·동시 공급 미제공(지역·기간 매칭)"),
-        DatasetMeta("L5 소득·구매력 (로그정규 근사)", 12, 14, 10, 8, 15,
-                    note="공공 대체 근사 — 제한 사용 [LIMITATION]"),
+        (DatasetMeta("L5 소득·구매력 (실측 중위 + 로그정규)", 16, 18, 14, 12, 15,
+                     note=income_stats.summary())
+         if income_stats is not None else
+         DatasetMeta("L5 소득·구매력 (로그정규 근사)", 12, 14, 10, 8, 15,
+                     note="공공 대체 근사 — 제한 사용 [LIMITATION]")),
         (DatasetMeta("매물·호가 (파일 수집)", 18, 20, 12, 12, 15, note=listings_note)
          if listings_note.startswith("매물·호가 파일")
          else DatasetMeta("매물·호가 (미수집)", 0, 0, 0, 0, 0, note=listings_note)),

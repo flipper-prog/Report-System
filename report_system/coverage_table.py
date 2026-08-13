@@ -53,7 +53,8 @@ def build(*, tx_count: int, sub_count: int, supply_items: int,
           mobility_connected: bool = False,
           transit_connected: bool = False,
           rent_connected: bool = False,
-          housing_connected: bool = False) -> list[LayerCoverage]:
+          housing_connected: bool = False,
+          income_measured: bool = False) -> list[LayerCoverage]:
     """현재 파이프라인의 실제 수집 상태로 커버리지표를 생성한다."""
     out: list[LayerCoverage] = []
     for layer, source in LAYERS:
@@ -82,8 +83,13 @@ def build(*, tx_count: int, sub_count: int, supply_items: int,
             cov = Coverage.CONDITIONAL if catalyst_items else Coverage.MISSING
             note = f"설정 입력 {catalyst_items}건 — 원문 링크 수기 등록"
         elif layer.startswith("L5"):
-            cov = Coverage.SUBSTITUTE if income_model else Coverage.MISSING
-            note = "로그정규 근사 — 실측 소득 데이터로 교체 권고 [LIMITATION]"
+            if income_measured:
+                cov = Coverage.CONDITIONAL
+                note = ("시군구 실측 중위소득으로 분포 중심 고정 — "
+                        "산포(σ)는 여전히 가정 [LIMITATION]")
+            else:
+                cov = Coverage.SUBSTITUTE if income_model else Coverage.MISSING
+                note = "로그정규 근사 — 실측 소득 데이터로 교체 권고 [LIMITATION]"
         elif layer.startswith(("L6", "L10")):
             cov, note = Coverage.MISSING, "민간 라이선스 별도 협의 대상"
         elif layer.startswith(("L1 ", "L2", "L4")):

@@ -121,5 +121,6 @@
   "mobility_purpose": "출근",
   "stations_file": "examples/stations_sample.csv",
   "transit_radius_m": 500,
-  "housing_file": "examples/housing_sample.csv"
+  "housing_file": "examples/housing_sample.csv",
+  "income_file": "examples/income_sample.csv"
 }

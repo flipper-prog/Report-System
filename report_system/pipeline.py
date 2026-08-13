@@ -78,6 +78,7 @@ def run(
     coef: Coefficients = DEFAULT_COEF,      # 품질조정 계수(교정 시 교체)
     provenance: "list | None" = None,       # 수집 이력 → 근거원장 출처 연결
     housing: object | None = None,          # L13 (주택건설실적)
+    income_stats: object | None = None,     # L5 (실측 소득 통계)
 ) -> PipelineResult:
     # 1) 입력 검증 — 치명 결함 시 중단
     issues = (validate_site(site, asof) + validate_transactions(txs, asof)
@@ -159,6 +160,7 @@ def run(
         tx_count=len(cr.kept), sub_count=len(sub_history),
         supply_items=len(supply_items), catalyst_items=len(catalyst_plans_new),
         income_model=bool(incomes),
+        income_measured=income_stats is not None,
         listings_connected=bool(listings and listings[1].listings),
         rent_connected=bool(rents),
         region_stats_connected=region_stats is not None,
@@ -235,7 +237,8 @@ def run(
         jeonse=jeonse_res, afford=afford, sub_fc=sub_fc, fid=fid, sa=sa,
         site=site, liq=liq, scen=scen, scen_id=scen_id, cards=cards,
         region_stats=region_stats, migration=migration, mobility=mobility,
-        transit=transit, commerce=commerce, unsold=unsold, housing=housing)
+        transit=transit, commerce=commerce, unsold=unsold, housing=housing,
+        income_stats=income_stats)
 
     inputs = ReportInputs(
         site=site, asof=asof, clean=cr, dataset_meta=dataset_meta,
@@ -249,14 +252,15 @@ def run(
         profile_notes=list(profile.notes),
         region_stats=region_stats, commerce=commerce, unsold=unsold,
         migration=migration, mobility=mobility, transit=transit,
-        jeonse=jeonse_res, evidence=ledger_ev, housing=housing)
+        jeonse=jeonse_res, evidence=ledger_ev, housing=housing,
+        income_stats=income_stats)
     return PipelineResult(generate_markdown(inputs), inputs, fid)
 
 
 def _build_evidence(*, provenance, cr, bands, anchor, coef, jeonse, afford,
                     sub_fc, fid, sa, site, liq, scen, scen_id, cards,
                     region_stats, migration, mobility, transit, commerce,
-                    unsold, housing) -> EvidenceLedger:
+                    unsold, housing, income_stats) -> EvidenceLedger:
     """리포트의 핵심 수치를 순서대로 등재한다.
 
     산출하지 못한 지표도 사유와 함께 남긴다 — 검토하지 않은 것과 표본이 없어
@@ -301,9 +305,15 @@ def _build_evidence(*, provenance, cr, bands, anchor, coef, jeonse, afford,
             ev.add("구매 가능 가구 비율 (기준 금리)",
                    f"{sum(shares)/len(shares):.0%}",
                    "affordability.simulate (LTV·DSR·30년 원리금균등)",
-                   ClaimGrade.CALCULATION, n=len(afford),
-                   limitations=["소득 분포는 공공 대체 근사 — 실측 소득으로 교체 권고",
-                                "가용 자기자본 ≈ 연소득×4 가정"])
+                   ClaimGrade.CALCULATION,
+                   ev.find("소득") if income_stats is not None else [],
+                   n=len(afford),
+                   limitations=(
+                       [f"소득 분포 중심: {income_stats.summary()}"]
+                       + list(getattr(income_stats, "limitations", []) or [])
+                       if income_stats is not None
+                       else ["소득 분포는 공공 대체 근사 — 실측 소득으로 교체 권고"])
+                   + ["가용 자기자본 ≈ 연소득×4 가정"])
 
     if sub_fc.ok:
         ev.add("청약 경쟁률 전망", f"{sub_fc.lo:.1f}~{sub_fc.hi:.1f} : 1",

@@ -63,6 +63,7 @@ class ReportInputs:
     jeonse: object | None = None
     evidence: object | None = None
     housing: object | None = None
+    income_stats: object | None = None
 
     def __post_init__(self):
         for f in ("backtests", "coverage_rows", "model_cards", "drifts",
@@ -207,6 +208,13 @@ def generate_markdown(x: ReportInputs) -> str:
             add(f"| {a.type_name} | {s['rate']:.1%} | {_fmt_won(s['equity_required'])} | "
                 f"{s['monthly']/1e4:,.0f} | {s['eligible_share']:.0%} |")
     add("")
+    if x.income_stats is not None:
+        add(f"*소득 분포 중심: **{x.income_stats.summary()}** "
+            f"({x.income_stats.source})*")
+        add("")
+        for lim in x.income_stats.limitations:
+            add(f"- {lim}")
+        add("")
     add("*가정: 가용 자기자본 ≈ 연소득 ×4, 30년 원리금균등. [LIMITATION] — 가정 변경 시 결과가 달라집니다.*")
     add("")
 

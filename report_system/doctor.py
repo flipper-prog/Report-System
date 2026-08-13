@@ -103,6 +103,8 @@ def check_config(cfg: dict[str, Any]) -> list[Check]:
 #: 선택 레이어 — (설정 키, 표시명, 파일 여부)
 OPTIONAL_LAYERS = [
     ("listings_file", "매물·호가 선행 신호", True),
+    ("income_file", "L5 실측 소득 (파일)", True),
+    ("kosis_income", "L5 실측 소득 (KOSIS API)", False),
     ("sgis_adm_cd", "L1·L2·L4 인구·가구·사업체 (SGIS)", False),
     ("migration_file", "L3 인구이동 (파일)", True),
     ("kosis_migration", "L3 인구이동 (KOSIS API)", False),
@@ -129,7 +131,9 @@ def check_layers(cfg: dict[str, Any]) -> list[Check]:
     l3_alt = {"migration_file": "kosis_migration",
               "kosis_migration": "migration_file",
               "housing_file": "kosis_housing",
-              "kosis_housing": "housing_file"}
+              "kosis_housing": "housing_file",
+              "income_file": "kosis_income",
+              "kosis_income": "income_file"}
     for key, label, is_file in OPTIONAL_LAYERS:
         val = cfg.get(key)
         if not val:
