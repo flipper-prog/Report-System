@@ -176,3 +176,70 @@ def build_listing_snapshots() -> tuple[ListingSnapshot, ListingSnapshot]:
     old = ListingSnapshot(ASOF - timedelta(days=30), 210, 10_900_000, 10_400_000)
     new = ListingSnapshot(ASOF, 268, 11_300_000, 10_350_000)
     return old, new
+
+
+# ── 선택 레이어 합성 표본 (generate --full 시연용) ──────────────────────────
+#
+# examples/*.csv 는 '실제 설정에서 어떤 파일을 넣는가'의 예시이고 강남권 좌표·
+# 지역명으로 되어 있다. 합성 현장은 좌표도 지역명도 가상이므로, 시연용 레이어는
+# 현장과 아귀가 맞게 여기서 직접 만든다.
+
+def build_unsold() -> "UnsoldSeries":
+    from .connectors.unsold import UnsoldPoint, UnsoldSeries
+    months = ["2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07"]
+    vals = [1200, 1290, 1380, 1450, 1510, 1560]      # 완만한 증가 국면
+    return UnsoldSeries(
+        points=[UnsoldPoint(m, v, int(v * 0.13)) for m, v in zip(months, vals)],
+        source="미분양 합성 표본")
+
+
+def build_migration() -> "MigrationSeries":
+    from .connectors.migration import MigrationPoint, MigrationSeries
+    rng = random.Random(SEED + 6)
+    pts, sources = [], {"표본구 갑동": 0, "인접 을시": 0, "원거리 병시": 0}
+    for i in range(12):
+        y, m = divmod(ASOF.year * 12 + ASOF.month - 1 - (11 - i), 12)
+        moved_in = 4200 + i * 40 + rng.randint(-120, 120)
+        moved_out = 4050 + i * 25 + rng.randint(-120, 120)
+        pts.append(MigrationPoint(f"{y}-{m + 1:02d}", moved_in, moved_out))
+        for k, share in (("표본구 갑동", 0.48), ("인접 을시", 0.33),
+                         ("원거리 병시", 0.19)):
+            sources[k] += int(moved_in * share)
+    return MigrationSeries(points=pts, inflow_sources=sources,
+                           population=310_000, source="인구이동 합성 표본")
+
+
+def build_mobility() -> "ODMatrix":
+    from .connectors.mobility import ODMatrix
+    od = ODMatrix(focus="샘플권역", purpose="출근", source="O/D 합성 표본")
+    od.internal = 128_000
+    od.outbound = {"인접 을시": 46_000, "원거리 병시": 21_000, "표본 도심": 38_000}
+    od.inbound = {"인접 을시": 52_000, "표본구 갑동": 34_000, "원거리 병시": 12_000}
+    od.limitations.append(
+        "O/D 는 계약·승인 기반 제공 자료로 갱신 주기가 길다 — 최근 개통·입주 "
+        "효과는 반영되지 않을 수 있음 [LIMITATION]")
+    return od
+
+
+def build_transit() -> "TransitAccess":
+    """합성 현장(37.50, 127.00) 주변에 정류장·역을 배치한다."""
+    from .connectors.transit import Station, Stop, TransitAccess
+    from .geo import haversine_m
+    site = build_site()
+    acc = TransitAccess(lat=site.lat, lng=site.lng, radius_m=500)
+    for name, dlat, dlng in (("표본역 1번출구", 0.0021, 0.0011),
+                             ("검증로 정류장", 0.0008, -0.0014),
+                             ("표본초교 정류장", -0.0019, 0.0021)):
+        la, ln = site.lat + dlat, site.lng + dlng
+        acc.stops.append(Stop(name, la, ln, haversine_m(site.lat, site.lng, la, ln)))
+    acc.stops.sort(key=lambda s: s.dist_m)
+    for name, dlat, dlng, lines in (("표본역", 0.0024, 0.0013, ["표본선"]),
+                                    ("검증역", 0.0130, -0.0090, ["검증선", "표본선"])):
+        la, ln = site.lat + dlat, site.lng + dlng
+        acc.stations.append(
+            Station(name, la, ln, haversine_m(site.lat, site.lng, la, ln), lines))
+    acc.stations.sort(key=lambda s: s.dist_m)
+    acc.limitations.append(
+        "직선거리 기반 도보 환산(보정계수 1.3) — 실제 보행 경로·고저차·신호는 "
+        "미반영. 배차 간격·환승 편의도 평가에 포함되지 않음 [LIMITATION]")
+    return acc

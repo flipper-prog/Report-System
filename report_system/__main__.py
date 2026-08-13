@@ -25,7 +25,20 @@ from .render_html import markdown_to_html
 OUT = pathlib.Path("out")
 
 
-def cmd_generate() -> int:
+def _demo_layers() -> dict:
+    """선택 레이어를 모두 켠다 (generate --full).
+
+    '전 레이어가 켜진 리포트가 어떤 모습인가'를 API 호출 없이 보여 준다.
+    examples/*.csv 는 실설정에 넣을 파일의 형식 예시(강남권 좌표·지역명)이고,
+    합성 현장은 좌표도 지역명도 가상이므로 여기서는 현장과 아귀가 맞는 합성
+    레이어를 쓴다. 수집 이력이 없으므로 근거원장의 출처는 비어 있고, 그 사실이
+    리포트에 그대로 드러난다.
+    """
+    return {"unsold": sd.build_unsold(), "migration": sd.build_migration(),
+            "mobility": sd.build_mobility(), "transit": sd.build_transit()}
+
+
+def cmd_generate(full: bool = False) -> int:
     OUT.mkdir(exist_ok=True)
     ledger = ForecastLedger(str(OUT / "forecast_ledger.db"))
     comps = sd.build_comparables()
@@ -33,6 +46,7 @@ def cmd_generate() -> int:
     # 조기경보 시연: 직전 스냅숏(예산 확보 전 단계)을 old로 사용
     cat_old = sd.build_catalysts()
     cat_old[0].budget_secured = 450_000_000_000
+    extra = _demo_layers() if full else {}
 
     result = run(
         site=sd.build_site(),
@@ -50,12 +64,19 @@ def cmd_generate() -> int:
         asof=sd.ASOF,
         ledger=ledger,
         store=RunStore(str(OUT / 'runs.db')),
+        **extra,
     )
-    path = OUT / "sample_report.md"
+    stem = "sample_report_full" if full else "sample_report"
+    path = OUT / f"{stem}.md"
     path.write_text(result.markdown, encoding="utf-8")
-    html_path = OUT / "sample_report.html"
+    html_path = OUT / f"{stem}.html"
     html_path.write_text(
         markdown_to_html(result.markdown, result.inputs.site.name), encoding="utf-8")
+    if full:
+        led = result.inputs.evidence
+        print(f"전 레이어 시연 — 근거 항목 {len(led.items)}개 "
+              f"(산출 {led.computed_count} · 미산출 "
+              f"{len(led.items) - led.computed_count})")
     print(f"리포트 생성: {path} / {html_path}")
     if result.forecast_id:
         print(f"청약 전망 봉인: {result.forecast_id} "
@@ -247,7 +268,9 @@ def cmd_calibrate(config: str | None, asof: str | None, offline: bool) -> int:
 def main() -> int:
     p = argparse.ArgumentParser(prog="report_system")
     sub = p.add_subparsers(dest="command", required=True)
-    sub.add_parser("generate")
+    gn = sub.add_parser("generate")
+    gn.add_argument("--full", action="store_true",
+                    help="examples/ 예시 파일로 전 레이어를 켠 리포트 생성")
     sub.add_parser("coverage")
     sub.add_parser("backtest")
     hs = sub.add_parser("history")
@@ -266,7 +289,7 @@ def main() -> int:
                     help="네트워크 없이 캐시만 사용 (재현 실행)")
     args = p.parse_args()
     if args.command == "generate":
-        return cmd_generate()
+        return cmd_generate(args.full)
     if args.command == "coverage":
         return cmd_coverage()
     if args.command == "backtest":
