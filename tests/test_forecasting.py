@@ -237,3 +237,43 @@ class TestLedgerAudit(unittest.TestCase):
         rep = audit(ForecastLedger())
         self.assertEqual(rep.total, 0)
         self.assertIn("시도할 대상 없음", rep.trigger_test)
+
+
+class TestReissue(unittest.TestCase):
+    """동일 분석 재실행 — 운영에서 늘 일어난다."""
+
+    def _seal(self, led, **kw):
+        args = dict(kind="subscription", target="S1", lo=5.0, hi=9.0,
+                    confidence=0.6, model_version="m-1",
+                    data_asof="2026-07-25", payload={"a": 1})
+        args.update(kw)
+        return led.seal(**args)
+
+    def test_identical_reissue_returns_same_id_without_error(self):
+        from report_system.ledger import ForecastLedger
+        led = ForecastLedger()
+        a = self._seal(led)
+        b = self._seal(led)          # 같은 초에 같은 내용 → 같은 ID
+        self.assertEqual(a, b)
+        self.assertEqual(len(led.history("subscription")), 1)
+
+    def test_reissue_does_not_disturb_recorded_outcome(self):
+        """실적이 이미 대조된 봉인을 재발행해도 기록이 흐트러지지 않는다."""
+        from report_system.ledger import ForecastLedger, audit
+        led = ForecastLedger()
+        fid = self._seal(led)
+        led.resolve(fid, 7.0)
+        self._seal(led)
+        rows = audit(led).rows
+        self.assertEqual(len(rows), 1)
+        self.assertTrue(rows[0].resolved)
+        self.assertTrue(rows[0].hit)
+        self.assertTrue(rows[0].intact)
+
+    def test_different_content_still_creates_new_seal(self):
+        from report_system.ledger import ForecastLedger
+        led = ForecastLedger()
+        a = self._seal(led)
+        b = self._seal(led, lo=6.0)          # 구간이 달라지면 다른 봉인
+        self.assertNotEqual(a, b)
+        self.assertEqual(len(led.history("subscription")), 2)

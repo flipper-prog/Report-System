@@ -83,6 +83,16 @@ class ForecastLedger:
             ensure_ascii=False, sort_keys=True)
         digest = hashlib.sha256(body.encode()).hexdigest()
         fid = f"{kind}:{target}:{digest[:12]}"
+
+        # 같은 ID = 같은 내용(발행 시각 포함)이다. 동일 분석을 같은 초에 다시
+        # 돌리면 여기에 걸리는데, 이미 봉인된 그 기록이 곧 이번 결과이므로
+        # 그대로 돌려준다. 아무것도 고치지 않으므로 불변성은 그대로다.
+        # (조용히 덮어쓰면 봉인이 아니게 되므로 INSERT OR REPLACE 는 쓰지 않는다)
+        exists = self.conn.execute(
+            "SELECT 1 FROM forecasts WHERE id=?", (fid,)).fetchone()
+        if exists:
+            return fid
+
         self.conn.execute(
             "INSERT INTO forecasts VALUES (?,?,?,?,?,?,?,?,?,?,?)",
             (fid, kind, target, lo, hi, confidence, model_version,
