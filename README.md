@@ -21,7 +21,7 @@ python3 -m report_system live --config my_site.json --offline # 캐시만 사용
 python3 -m report_system coverage   # 예측 이력 장부 적중률
 python3 -m report_system backtest   # 백테스트 단독 실행 → out/backtest.md
 python3 -m report_system history --site SAMPLE-001   # 회차별 판정·지표 변화
-python3 tests/run_all.py            # 전체 테스트 (111건)
+python3 tests/run_all.py            # 전체 테스트 (132건)
 ```
 
 ### 실데이터 준비 절차
@@ -49,6 +49,22 @@ python3 tests/run_all.py            # 전체 테스트 (111건)
 
 `--skip-api` 로 설정 검사만 수행할 수 있다. 실패 항목이 있으면 종료코드 1.
 
+### 레이어별 커넥터 현황
+
+| 레이어 | 커넥터 | 인증 | 설정 키 |
+|--------|--------|------|---------|
+| L11 실거래 | `molit` (국토부 E01) | `DATA_GO_KR_API_KEY` | `lawd_cd`, `comparables` |
+| L12 청약 | `applyhome` (청약홈 E02) | 〃 | `subscription_regions` |
+| L12 미분양 | `unsold` (파일) | — | `unsold_file` |
+| L1·L2·L4 인구·가구·사업체 | `sgis` (통계청) | `SGIS_CONSUMER_KEY`/`SECRET` | `sgis_adm_cd`, `sgis_years` |
+| L9 상권 | `commerce` (소상공인공단) | `DATA_GO_KR_API_KEY` | `commerce_radius_m` |
+| 매물·호가 | `listings` (파일) | — | `listings_file` |
+| L3·L7·L8 | 로드맵 | — | — |
+| L6·L10 (유동·카드) | 민간 라이선스 별도 협의 | — | — |
+
+선택 레이어는 설정 키가 없으면 **건너뛰고 리포트 커버리지표에 '미수집'으로 표기**된다.
+SGIS는 시군구 단위이므로 생활권보다 해상도가 낮다는 한계가 항상 병기된다.
+
 ### 커넥터 동작
 
 | 항목 | 내용 |
@@ -63,7 +79,8 @@ python3 tests/run_all.py            # 전체 테스트 (111건)
 ## 아키텍처
 
 ```
-[실데이터] connectors/molit(E01 실거래) · connectors/applyhome(E02 청약)
+[실데이터] connectors/  molit(E01 실거래) · applyhome(E02 청약) · sgis(L1·L2·L4 인구·가구·사업체)
+                        commerce(L9 상권) · unsold(L12 미분양) · listings(매물·호가)
            └ 캐시·재시도·수집이력(Provenance) → live.py 가 설정(JSON)과 결합
 [샘플]     sample_data(합성)
   ↓
@@ -109,7 +126,7 @@ python3 tests/run_all.py            # 전체 테스트 (111건)
 report_system/             파이프라인 패키지 (stdlib only)
   connectors/              실데이터 커넥터 (molit=E01, applyhome=E02, base=캐시·이력)
   live.py                  설정 JSON + 커넥터 → 리포트
-tests/                     unittest 스위트 (111건) — run_all.py 로 일괄 실행
+tests/                     unittest 스위트 (132건) — run_all.py 로 일괄 실행
 examples/site_config.json  실데이터 실행 설정 예시
 proposal/                  사업 제안서 (md + docx 납품본 + 변환 스크립트)
 docs/                      설계검토보고서 (P0/P1/P2 진단)

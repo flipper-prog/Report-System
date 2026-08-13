@@ -54,6 +54,9 @@ class ReportInputs:
     liquidity: object | None = None
     profile_note: str = ""
     profile_notes: list = None  # type: ignore[assignment]
+    region_stats: object | None = None
+    commerce: object | None = None
+    unsold: object | None = None
 
     def __post_init__(self):
         for f in ("backtests", "coverage_rows", "model_cards", "drifts",
@@ -259,6 +262,24 @@ def generate_markdown(x: ReportInputs) -> str:
         add("")
         for lim in liq.limitations:
             add(f"- {lim}")
+        add("")
+
+    # 7-3. 지역 기반 통계
+    if x.region_stats is not None or x.commerce is not None or x.unsold is not None:
+        add("## 7-3. 지역 기반 통계 (L1·L2·L4·L9·L12)")
+        add("")
+        add("| 레이어 | 요약 |")
+        add("|--------|------|")
+        if x.region_stats is not None:
+            add(f"| L1·L2·L4 인구·가구·사업체 | {x.region_stats.summary()} |")
+        if x.commerce is not None:
+            add(f"| L9 상권 | {x.commerce.summary()} |")
+        if x.unsold is not None:
+            add(f"| L12 미분양 | {x.unsold.summary()} |")
+        add("")
+        for obj in (x.region_stats, x.commerce, x.unsold):
+            for lim in (getattr(obj, "limitations", []) or []):
+                add(f"- {lim}")
         add("")
 
     # 8. 촉매카드

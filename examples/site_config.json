@@ -1,5 +1,5 @@
 {
-  "_설명": "실데이터 실행 설정 예시. apt_nm은 국토부 실거래 데이터의 단지명과 정확히 일치해야 하며, 불일치 시 CLI가 해당 지역의 실제 단지명 목록을 안내한다. 분양가·좌표 등은 예시 값이므로 실제 현장 값으로 교체할 것. comparables[].units는 환금성(회전율) 산출에 필요하다. listings_file 은 선택 — 지정 시 매물·호가 선행 신호가 활성화된다.",
+  "_설명": "실데이터 실행 설정 예시. apt_nm은 국토부 실거래 데이터의 단지명과 정확히 일치해야 하며, 불일치 시 CLI가 해당 지역의 실제 단지명 목록을 안내한다. 분양가·좌표 등은 예시 값이므로 실제 현장 값으로 교체할 것. comparables[].units는 환금성(회전율) 산출에 필요하다. listings_file 은 선택 — 지정 시 매물·호가 선행 신호가 활성화된다. sgis_adm_cd(별도 인증)·commerce_radius_m·unsold_file 은 모두 선택 — 지정 시 해당 레이어가 활성화되고 미지정 시 리포트에 '미수집'으로 표기된다.",
   "asof": "2026-07-25",
   "lawd_cd": "11680",
   "months": 24,
@@ -105,5 +105,13 @@
     "rejections": {},
     "visitor_home_regions": {}
   },
-  "listings_file": "examples/listings_sample.csv"
+  "listings_file": "examples/listings_sample.csv",
+  "sgis_adm_cd": "11680",
+  "sgis_years": [
+    2021,
+    2023,
+    2025
+  ],
+  "commerce_radius_m": 1000,
+  "unsold_file": "examples/unsold_sample.csv"
 }

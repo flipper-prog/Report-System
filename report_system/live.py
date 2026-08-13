@@ -12,7 +12,11 @@ from datetime import date, timedelta
 
 from .connectors.applyhome import fetch_subscription_history
 from .connectors.base import Fetcher, api_key
+from .connectors.commerce import CommerceApiError, fetch_radius
 from .connectors.listings import ListingsFormatError, load as load_listings
+from .connectors.sgis import SgisAuthError, credentials as sgis_credentials
+from .connectors.sgis import fetch_region_stats, get_token
+from .connectors.unsold import UnsoldFormatError, load as load_unsold
 from .connectors.molit import (build_comparables, fetch_range,
                                to_transactions)
 from .ledger import ForecastLedger
@@ -142,6 +146,35 @@ def run_live(config_path: str, asof: date | None = None,
         except ListingsFormatError as e:
             listings_note = f"매물 파일 오류 — {e}" 
 
+    # L1·L2·L4 SGIS 지역 통계 (선택 — 별도 인증)
+    region_stats = None
+    if cfg.get("sgis_adm_cd"):
+        try:
+            token = get_token(fetcher, *sgis_credentials())
+            years = list(cfg.get("sgis_years", [asof.year - 5, asof.year - 3, asof.year - 1]))
+            region_stats = fetch_region_stats(fetcher, str(cfg["sgis_adm_cd"]), years, token)
+        except (SgisAuthError, RuntimeError) as e:
+            print(f"[안내] SGIS 수집 생략 — {e}")
+
+    # L9 상권 (선택 — DATA_GO_KR 키 공용)
+    commerce = None
+    if cfg.get("commerce_radius_m"):
+        try:
+            site_cfg = cfg["site"]
+            commerce = fetch_radius(fetcher, key, float(site_cfg["lng"]),
+                                    float(site_cfg["lat"]),
+                                    int(cfg["commerce_radius_m"]))
+        except (CommerceApiError, RuntimeError) as e:
+            print(f"[안내] 상권 수집 생략 — {e}")
+
+    # L12 보강 — 미분양 (파일)
+    unsold = None
+    if cfg.get("unsold_file"):
+        try:
+            unsold = load_unsold(cfg["unsold_file"], until=asof)
+        except UnsoldFormatError as e:
+            print(f"[안내] 미분양 수집 생략 — {e}")
+
     result = run(
         site=_site_from(cfg),
         comps=comps,
@@ -151,13 +184,16 @@ def run_live(config_path: str, asof: date | None = None,
         catalyst_plans_old=_catalysts_from(cfg),
         catalyst_plans_new=_catalysts_from(cfg),
         dataset_meta=_dataset_meta(sub_hist_n=len(sub_hist), tx_n=len(txs),
-                                   listings_note=listings_note),
+                                   listings_note=listings_note,
+                                   region_stats=region_stats,
+                                   commerce=commerce, unsold=unsold),
         incomes=_incomes_from(cfg),
         feedback=_feedback_from(cfg),
         listings=listings_pair,
         asof=asof,
         ledger=ForecastLedger(ledger_path),
-        store=RunStore(store_path))
+        store=RunStore(store_path),
+        region_stats=region_stats, commerce=commerce, unsold=unsold)
 
     pathlib.Path("out").mkdir(exist_ok=True)
     pathlib.Path("out/provenance.json").write_text(
@@ -166,7 +202,8 @@ def run_live(config_path: str, asof: date | None = None,
 
 
 def _dataset_meta(sub_hist_n: int, tx_n: int,
-                  listings_note: str = "") -> list[DatasetMeta]:
+                  listings_note: str = "",
+                  region_stats=None, commerce=None, unsold=None) -> list[DatasetMeta]:
     """수집 결과 기반의 적합성 평가(라이브 기본값)."""
     return [
         DatasetMeta("L11 실거래 (국토부 E01)", 24, 24, 18, 15, 15,
@@ -178,4 +215,19 @@ def _dataset_meta(sub_hist_n: int, tx_n: int,
         (DatasetMeta("매물·호가 (파일 수집)", 18, 20, 12, 12, 15, note=listings_note)
          if listings_note.startswith("매물·호가 파일")
          else DatasetMeta("매물·호가 (미수집)", 0, 0, 0, 0, 0, note=listings_note)),
+        (DatasetMeta("L1·L2·L4 인구·가구·사업체 (SGIS)", 12, 20, 18, 14, 15,
+                     note="시군구 단위 — 생활권보다 해상도 낮음 [LIMITATION]")
+         if region_stats is not None
+         else DatasetMeta("L1·L2·L4 (미수집)", 0, 0, 0, 0, 0,
+                          note="sgis_adm_cd 미지정 또는 인증 없음")),
+        (DatasetMeta("L9 상권 (소상공인공단)", 22, 18, 15, 13, 15,
+                     note=f"업소 {getattr(commerce, 'total_stores', 0):,}건 수집")
+         if commerce is not None
+         else DatasetMeta("L9 상권 (미수집)", 0, 0, 0, 0, 0,
+                          note="commerce_radius_m 미지정")),
+        (DatasetMeta("L12 미분양 (파일)", 15, 22, 16, 14, 15,
+                     note=f"관측 {len(getattr(unsold, 'points', []))}개월")
+         if unsold is not None
+         else DatasetMeta("L12 미분양 (미수집)", 0, 0, 0, 0, 0,
+                          note="unsold_file 미지정")),
     ]

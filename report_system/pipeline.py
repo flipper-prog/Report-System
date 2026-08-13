@@ -64,6 +64,9 @@ def run(
     store: "RunStore | None" = None,
     competitors_old: "list[CompetitorSnapshot] | None" = None,
     competitors_new: "list[CompetitorSnapshot] | None" = None,
+    region_stats: object | None = None,     # L1·L2·L4 (SGIS)
+    commerce: object | None = None,         # L9 (상권)
+    unsold: object | None = None,           # L12 보강 (미분양)
 ) -> PipelineResult:
     # 1) 입력 검증 — 치명 결함 시 중단
     issues = validate_site(site, asof) + validate_transactions(txs, asof)
@@ -141,7 +144,11 @@ def run(
     cov_rows = build_coverage(
         tx_count=len(cr.kept), sub_count=len(sub_history),
         supply_items=len(supply_items), catalyst_items=len(catalyst_plans_new),
-        income_model=bool(incomes))
+        income_model=bool(incomes),
+        listings_connected=bool(listings and listings[1].listings),
+        region_stats_connected=region_stats is not None,
+        commerce_connected=commerce is not None,
+        unsold_connected=unsold is not None)
     span = (f"{min(t.trade_date for t in cr.kept)} ~ {max(t.trade_date for t in cr.kept)}"
             if cr.kept else "없음")
     bt_price = next((b for b in backtests if b.name.startswith("가격")), None)
@@ -162,9 +169,10 @@ def run(
 
     # 8) 판정 4종
     v1 = price_verdict(positions)
-    v2 = demand_verdict(afford, sub_fc)
+    v2 = demand_verdict(afford, sub_fc, region_stats=region_stats,
+                        commerce=commerce)
     liq = analyze_liquidity(cr.kept, comps, asof, good_threshold=profile.turnover_good_pct)
-    v3 = supply_verdict(sa, site.total_units, liq)
+    v3 = supply_verdict(sa, site.total_units, liq, unsold=unsold)
     v4 = catalyst_verdict(cards)
     verdicts = [v1, v2, v3, v4]
 
@@ -207,7 +215,8 @@ def run(
         trend=trend, scenarios=scen, scenario_id=scen_id, backtests=backtests,
         coverage_rows=cov_rows, model_cards=cards_md, drifts=drifts,
         liquidity=liq, profile_note=applicability_note(profile),
-        profile_notes=list(profile.notes))
+        profile_notes=list(profile.notes),
+        region_stats=region_stats, commerce=commerce, unsold=unsold)
     return PipelineResult(generate_markdown(inputs), inputs, fid)
 
 

@@ -44,9 +44,21 @@ def price_verdict(positions: list[MarketPosition]) -> Verdict:
 
 
 def demand_verdict(afford: list[AffordabilityResult],
-                   sub: SubscriptionForecast) -> Verdict:
+                   sub: SubscriptionForecast,
+                   region_stats: object | None = None,
+                   commerce: object | None = None) -> Verdict:
     rationale: list[str] = []
     scores: list[float] = []
+
+    if region_stats is not None:
+        rationale.append(f"지역 통계(L1·L2·L4): {region_stats.summary()}")
+        hh = getattr(region_stats, "household_cagr", None)
+        if hh is not None:
+            # 가구 증가는 주거 수요의 직접 신호 — 연 1% 증가를 기준선으로 정규화
+            scores.append(max(0.0, min(1.0, (hh + 1.0) / 3.0)))
+    if commerce is not None:
+        rationale.append(f"생활 인프라(L9): {commerce.summary()}")
+        scores.append(commerce.essential_coverage)
 
     if afford:
         base_shares = [a.scenarios[1]["eligible_share"] for a in afford if len(a.scenarios) > 1]
@@ -72,7 +84,8 @@ def demand_verdict(afford: list[AffordabilityResult],
 
 
 def supply_verdict(sa: SupplyAssessment, site_units: int,
-                   liq: "LiquidityResult | None" = None) -> Verdict:
+                   liq: "LiquidityResult | None" = None,
+                   unsold: object | None = None) -> Verdict:
     ratio = sa.adjusted_units / site_units if site_units else 0
     if ratio >= 8:
         direction, strength = "부정", "강"
@@ -88,6 +101,12 @@ def supply_verdict(sa: SupplyAssessment, site_units: int,
         f"(발표 물량 {sa.nominal_units:,}세대) — 현장 세대수 대비 {ratio:.1f}배"]
 
     confidence = "보통"
+    if unsold is not None and getattr(unsold, "latest", None) is not None:
+        rationale.append(f"미분양(L12): {unsold.summary()}")
+        t = unsold.trend_pct()
+        if t is not None and t >= 20 and direction != "부정":
+            direction = "부정"
+            rationale.append("→ 미분양 증가 추세로 위험 판정 상향")
     if liq is not None:
         rationale.append(liq.as_rationale())
         # 환금성 취약이 확인되면 위험 판정을 한 단계 강화한다

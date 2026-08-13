@@ -45,7 +45,10 @@ LAYERS = [
 
 def build(*, tx_count: int, sub_count: int, supply_items: int,
           catalyst_items: int, income_model: bool,
-          listings_connected: bool = False) -> list[LayerCoverage]:
+          listings_connected: bool = False,
+          region_stats_connected: bool = False,
+          commerce_connected: bool = False,
+          unsold_connected: bool = False) -> list[LayerCoverage]:
     """현재 파이프라인의 실제 수집 상태로 커버리지표를 생성한다."""
     out: list[LayerCoverage] = []
     for layer, source in LAYERS:
@@ -58,6 +61,8 @@ def build(*, tx_count: int, sub_count: int, supply_items: int,
             cov = Coverage.AVAILABLE if sub_count else Coverage.MISSING
             note = (f"수집 {sub_count}건 — 가격 갭·동시 공급 미제공"
                     if sub_count else "수집 0건")
+            if unsold_connected:
+                note += " · 미분양 시계열 연동됨"
         elif layer.startswith("L13"):
             cov = Coverage.CONDITIONAL if supply_items else Coverage.MISSING
             note = f"설정 입력 {supply_items}건 — 인허가 통계 연동 시 자동화 가능"
@@ -69,7 +74,17 @@ def build(*, tx_count: int, sub_count: int, supply_items: int,
             note = "로그정규 근사 — 실측 소득 데이터로 교체 권고 [LIMITATION]"
         elif layer.startswith(("L6", "L10")):
             cov, note = Coverage.MISSING, "민간 라이선스 별도 협의 대상"
-        elif layer.startswith(("L1 ", "L2", "L3", "L4", "L7", "L8", "L9")):
+        elif layer.startswith(("L1 ", "L2", "L4")):
+            if region_stats_connected:
+                cov = Coverage.CONDITIONAL
+                note = "SGIS 시군구 단위 — 생활권 격자 권한 확보 시 상향"
+            else:
+                cov, note = Coverage.MISSING, "SGIS 인증·행정구역 코드 미지정"
+        elif layer.startswith("L9"):
+            cov = Coverage.AVAILABLE if commerce_connected else Coverage.MISSING
+            note = ("반경 내 업소 수집" if commerce_connected
+                    else "commerce_radius_m 미지정")
+        elif layer.startswith(("L3", "L7", "L8")):
             cov, note = Coverage.MISSING, "커넥터 로드맵 — 공공 API 연동 예정"
 
         if layer.startswith("L11") and listings_connected:
