@@ -67,6 +67,9 @@ def run(
     region_stats: object | None = None,     # L1·L2·L4 (SGIS)
     commerce: object | None = None,         # L9 (상권)
     unsold: object | None = None,           # L12 보강 (미분양)
+    migration: object | None = None,        # L3 (인구이동)
+    mobility: object | None = None,         # L7 (생활이동·O/D)
+    transit: object | None = None,          # L8 (교통망·접근성)
 ) -> PipelineResult:
     # 1) 입력 검증 — 치명 결함 시 중단
     issues = validate_site(site, asof) + validate_transactions(txs, asof)
@@ -148,7 +151,10 @@ def run(
         listings_connected=bool(listings and listings[1].listings),
         region_stats_connected=region_stats is not None,
         commerce_connected=commerce is not None,
-        unsold_connected=unsold is not None)
+        unsold_connected=unsold is not None,
+        migration_connected=migration is not None,
+        mobility_connected=mobility is not None,
+        transit_connected=transit is not None)
     span = (f"{min(t.trade_date for t in cr.kept)} ~ {max(t.trade_date for t in cr.kept)}"
             if cr.kept else "없음")
     bt_price = next((b for b in backtests if b.name.startswith("가격")), None)
@@ -170,7 +176,8 @@ def run(
     # 8) 판정 4종
     v1 = price_verdict(positions)
     v2 = demand_verdict(afford, sub_fc, region_stats=region_stats,
-                        commerce=commerce)
+                        commerce=commerce, migration=migration,
+                        mobility=mobility, transit=transit)
     liq = analyze_liquidity(cr.kept, comps, asof, good_threshold=profile.turnover_good_pct)
     v3 = supply_verdict(sa, site.total_units, liq, unsold=unsold)
     v4 = catalyst_verdict(cards)
@@ -200,10 +207,11 @@ def run(
         feedback,
         price_verdict_positive=(v1.direction == "긍정"),
         expected_home_regions=[site.region],
-        catalyst_ad_active=any(c.ad_grade != AdGrade.FORBIDDEN for c in cards))
+        catalyst_ad_active=any(c.ad_grade != AdGrade.FORBIDDEN for c in cards),
+        migration=migration)
 
     # 10) 표현 통제 — 리포트에 실릴 후보 문장 구성 후 린트
-    claims = _build_claims(site, positions, sub_fc, cards)
+    claims = _build_claims(site, positions, sub_fc, cards, transit)
     lint_res = lint(claims)
 
     inputs = ReportInputs(
@@ -216,12 +224,24 @@ def run(
         coverage_rows=cov_rows, model_cards=cards_md, drifts=drifts,
         liquidity=liq, profile_note=applicability_note(profile),
         profile_notes=list(profile.notes),
-        region_stats=region_stats, commerce=commerce, unsold=unsold)
+        region_stats=region_stats, commerce=commerce, unsold=unsold,
+        migration=migration, mobility=mobility, transit=transit)
     return PipelineResult(generate_markdown(inputs), inputs, fid)
 
 
-def _build_claims(site, positions, sub_fc, cards) -> list[Claim]:
+def _build_claims(site, positions, sub_fc, cards, transit=None) -> list[Claim]:
     claims: list[Claim] = []
+    # 접근성 문장은 좌표로 검증된 범위 안에서만 생성한다 (L8).
+    # 역이 도보 기준 밖이면 문장 자체를 만들지 않는다 — 린트가 아니라 생성 단계에서 차단.
+    if transit is not None:
+        st = getattr(transit, "nearest_station", None)
+        if st is not None and st.walk_min <= 10.0:
+            claims.append(Claim(
+                text=(f"{st.name}까지 도보 약 {st.walk_min:.0f}분 거리입니다"
+                      f"(직선 {st.dist_m:,.0f}m, 보행 보정 적용)"),
+                grade=ClaimGrade.CALCULATION,
+                ad_grade=AdGrade.ALLOWED,
+                evidence=["transit:nearest_station"]))
     for p in positions:
         claims.append(Claim(
             text=(f"{p.type_name} 총취득원가는 ㎡당 {p.subject_ppsm/1e4:,.0f}만원으로, "

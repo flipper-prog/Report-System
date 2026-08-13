@@ -14,8 +14,14 @@ from .connectors.applyhome import fetch_subscription_history
 from .connectors.base import Fetcher, api_key
 from .connectors.commerce import CommerceApiError, fetch_radius
 from .connectors.listings import ListingsFormatError, load as load_listings
+from .connectors.migration import (KosisApiError, MigrationFormatError,
+                                   fetch_kosis, kosis_key)
+from .connectors.migration import load as load_migration
+from .connectors.mobility import MobilityFormatError, load as load_mobility
 from .connectors.sgis import SgisAuthError, credentials as sgis_credentials
 from .connectors.sgis import fetch_region_stats, get_token
+from .connectors.transit import (StationFormatError, TransitApiError,
+                                 collect as collect_transit)
 from .connectors.unsold import UnsoldFormatError, load as load_unsold
 from .connectors.molit import (build_comparables, fetch_range,
                                to_transactions)
@@ -175,6 +181,48 @@ def run_live(config_path: str, asof: date | None = None,
         except UnsoldFormatError as e:
             print(f"[안내] 미분양 수집 생략 — {e}")
 
+    # L3 인구이동 — KOSIS API(kosis_migration) 또는 파일(migration_file)
+    migration = None
+    if cfg.get("kosis_migration"):
+        try:
+            spec = dict(cfg["kosis_migration"])
+            migration = fetch_kosis(fetcher, kosis_key(), spec,
+                                    population=cfg.get("region_population"))
+        except KosisApiError as e:
+            print(f"[안내] 인구이동(KOSIS) 수집 생략 — {e}")
+    if migration is None and cfg.get("migration_file"):
+        try:
+            migration = load_migration(
+                cfg["migration_file"], until=f"{asof.year}-{asof.month:02d}",
+                population=cfg.get("region_population"))
+        except MigrationFormatError as e:
+            print(f"[안내] 인구이동 수집 생략 — {e}")
+
+    # L7 생활이동·O/D — 계약 자료 파일
+    mobility = None
+    if cfg.get("mobility_file"):
+        try:
+            mobility = load_mobility(
+                cfg["mobility_file"],
+                focus=cfg.get("mobility_focus") or cfg["site"].get("region", ""),
+                purpose=cfg.get("mobility_purpose"))
+        except MobilityFormatError as e:
+            print(f"[안내] 생활이동 수집 생략 — {e}")
+
+    # L8 교통망·접근성 — 정류장(TAGO API) + 역 좌표 파일
+    transit = None
+    if cfg.get("transit_radius_m") or cfg.get("stations_file"):
+        try:
+            site_cfg = cfg["site"]
+            transit = collect_transit(
+                fetcher if cfg.get("transit_radius_m") else None,
+                key if cfg.get("transit_radius_m") else None,
+                float(site_cfg["lat"]), float(site_cfg["lng"]),
+                radius_m=int(cfg.get("transit_radius_m", 500)),
+                stations_file=cfg.get("stations_file"))
+        except (TransitApiError, StationFormatError, RuntimeError) as e:
+            print(f"[안내] 교통 접근성 수집 생략 — {e}")
+
     result = run(
         site=_site_from(cfg),
         comps=comps,
@@ -186,14 +234,17 @@ def run_live(config_path: str, asof: date | None = None,
         dataset_meta=_dataset_meta(sub_hist_n=len(sub_hist), tx_n=len(txs),
                                    listings_note=listings_note,
                                    region_stats=region_stats,
-                                   commerce=commerce, unsold=unsold),
+                                   commerce=commerce, unsold=unsold,
+                                   migration=migration, mobility=mobility,
+                                   transit=transit),
         incomes=_incomes_from(cfg),
         feedback=_feedback_from(cfg),
         listings=listings_pair,
         asof=asof,
         ledger=ForecastLedger(ledger_path),
         store=RunStore(store_path),
-        region_stats=region_stats, commerce=commerce, unsold=unsold)
+        region_stats=region_stats, commerce=commerce, unsold=unsold,
+        migration=migration, mobility=mobility, transit=transit)
 
     pathlib.Path("out").mkdir(exist_ok=True)
     pathlib.Path("out/provenance.json").write_text(
@@ -203,7 +254,8 @@ def run_live(config_path: str, asof: date | None = None,
 
 def _dataset_meta(sub_hist_n: int, tx_n: int,
                   listings_note: str = "",
-                  region_stats=None, commerce=None, unsold=None) -> list[DatasetMeta]:
+                  region_stats=None, commerce=None, unsold=None,
+                  migration=None, mobility=None, transit=None) -> list[DatasetMeta]:
     """수집 결과 기반의 적합성 평가(라이브 기본값)."""
     return [
         DatasetMeta("L11 실거래 (국토부 E01)", 24, 24, 18, 15, 15,
@@ -230,4 +282,22 @@ def _dataset_meta(sub_hist_n: int, tx_n: int,
          if unsold is not None
          else DatasetMeta("L12 미분양 (미수집)", 0, 0, 0, 0, 0,
                           note="unsold_file 미지정")),
+        (DatasetMeta("L3 인구이동", 18, 20, 16, 14, 15,
+                     note=f"{getattr(migration, 'source', '')} — "
+                          f"관측 {len(getattr(migration, 'points', []))}개 시점")
+         if migration is not None
+         else DatasetMeta("L3 인구이동 (미수집)", 0, 0, 0, 0, 0,
+                          note="kosis_migration·migration_file 미지정")),
+        (DatasetMeta("L7 생활이동·O/D (계약 자료)", 20, 12, 18, 12, 15,
+                     note="갱신 주기가 길어 최근 개통·입주 효과 미반영 [LIMITATION]")
+         if mobility is not None
+         else DatasetMeta("L7 생활이동·O/D (미수집)", 0, 0, 0, 0, 0,
+                          note="mobility_file 미지정 — KTDB·통신사 계약 대상")),
+        (DatasetMeta("L8 교통망·접근성", 20, 22, 18, 12, 15,
+                     note=f"정류장 {len(getattr(transit, 'stops', []))}개소 · "
+                          f"역 {len(getattr(transit, 'stations', []))}개 — "
+                          "직선거리 도보 환산 [LIMITATION]")
+         if transit is not None
+         else DatasetMeta("L8 교통망·접근성 (미수집)", 0, 0, 0, 0, 0,
+                          note="transit_radius_m·stations_file 미지정")),
     ]

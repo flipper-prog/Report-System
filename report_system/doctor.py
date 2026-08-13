@@ -2,9 +2,9 @@
 
 키 수령 직후 `live` 를 바로 돌리기 전에 이 명령으로 다음을 확인한다.
   1) 설정 파일의 필수 키·타입·값 범위
-  2) 인증키 존재 및 두 API의 실제 응답 (소량 호출)
-  3) 대상 지역의 실제 단지명 목록 → comparables 이름 교정
-  4) 예상 커버리지 (어떤 레이어가 활성화되는지)
+  2) 선택 레이어 설정·파일 존재 (어떤 레이어가 활성화되는지)
+  3) 인증키 존재 및 두 API의 실제 응답 (소량 호출)
+  4) 대상 지역의 실제 단지명 목록 → comparables 이름 교정
 
 네트워크 호출은 각 API당 1회로 제한한다.
 """
@@ -97,6 +97,61 @@ def check_config(cfg: dict[str, Any]) -> list[Check]:
         out.append(Check("공급 파이프라인", WARN, "미입력 — 공급 판정 신뢰도 낮음"))
     if not cfg.get("catalysts"):
         out.append(Check("개발계획", WARN, "미입력 — 촉매 판정 '평가 대상 없음'"))
+    return out
+
+
+#: 선택 레이어 — (설정 키, 표시명, 파일 여부)
+OPTIONAL_LAYERS = [
+    ("listings_file", "매물·호가 선행 신호", True),
+    ("sgis_adm_cd", "L1·L2·L4 인구·가구·사업체 (SGIS)", False),
+    ("migration_file", "L3 인구이동 (파일)", True),
+    ("kosis_migration", "L3 인구이동 (KOSIS API)", False),
+    ("mobility_file", "L7 생활이동·O/D", True),
+    ("stations_file", "L8 역 좌표", True),
+    ("transit_radius_m", "L8 정류장 수집 반경", False),
+    ("commerce_radius_m", "L9 상권 수집 반경", False),
+    ("unsold_file", "L12 미분양", True),
+]
+
+
+def check_layers(cfg: dict[str, Any]) -> list[Check]:
+    """선택 레이어의 설정 여부와 파일 존재를 확인한다.
+
+    미지정은 실패가 아니라 '미수집'이다 — 리포트 커버리지표에 그대로 표기된다.
+    지정했는데 파일이 없는 경우만 실패로 본다.
+    """
+    import pathlib as _pl
+
+    out: list[Check] = []
+    # L3는 KOSIS API·파일 중 하나만 있으면 되므로, 다른 경로가 잡혀 있으면 묻지 않는다
+    l3_alt = {"migration_file": "kosis_migration",
+              "kosis_migration": "migration_file"}
+    for key, label, is_file in OPTIONAL_LAYERS:
+        val = cfg.get(key)
+        if not val:
+            if key in l3_alt and cfg.get(l3_alt[key]):
+                continue
+            out.append(Check(label, WARN, f"`{key}` 미지정 — 해당 레이어 미수집"))
+            continue
+        if is_file and not _pl.Path(str(val)).exists():
+            out.append(Check(label, FAIL, f"파일 없음: {val}"))
+        else:
+            out.append(Check(label, OK, f"{key} = {val}"))
+
+    if cfg.get("mobility_file") and not (cfg.get("mobility_focus")
+                                         or cfg.get("site", {}).get("region")):
+        out.append(Check("L7 focus 지역", FAIL,
+                         "mobility_focus 또는 site.region 필요 — 집계 기준 지역 미상"))
+    if cfg.get("kosis_migration"):
+        spec = cfg["kosis_migration"]
+        missing = [k for k in ("item_in", "item_out") if not spec.get(k)]
+        if missing:
+            out.append(Check("L3 KOSIS 항목 코드", FAIL,
+                             f"kosis_migration.{'/'.join(missing)} 누락"))
+    if (cfg.get("migration_file") or cfg.get("kosis_migration")) \
+            and not cfg.get("region_population"):
+        out.append(Check("L3 기준 인구", WARN,
+                         "`region_population` 미지정 — 순이동률 대신 비중으로 판정"))
     return out
 
 

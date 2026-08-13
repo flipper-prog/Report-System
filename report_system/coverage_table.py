@@ -48,7 +48,10 @@ def build(*, tx_count: int, sub_count: int, supply_items: int,
           listings_connected: bool = False,
           region_stats_connected: bool = False,
           commerce_connected: bool = False,
-          unsold_connected: bool = False) -> list[LayerCoverage]:
+          unsold_connected: bool = False,
+          migration_connected: bool = False,
+          mobility_connected: bool = False,
+          transit_connected: bool = False) -> list[LayerCoverage]:
     """현재 파이프라인의 실제 수집 상태로 커버리지표를 생성한다."""
     out: list[LayerCoverage] = []
     for layer, source in LAYERS:
@@ -84,8 +87,24 @@ def build(*, tx_count: int, sub_count: int, supply_items: int,
             cov = Coverage.AVAILABLE if commerce_connected else Coverage.MISSING
             note = ("반경 내 업소 수집" if commerce_connected
                     else "commerce_radius_m 미지정")
-        elif layer.startswith(("L3", "L7", "L8")):
-            cov, note = Coverage.MISSING, "커넥터 로드맵 — 공공 API 연동 예정"
+        elif layer.startswith("L3"):
+            if migration_connected:
+                cov = Coverage.AVAILABLE
+                note = "전입·전출·순이동 수집 — 유입 출발지는 자료 제공 시 집계"
+            else:
+                cov, note = Coverage.MISSING, "KOSIS 표 코드 또는 migration_file 미지정"
+        elif layer.startswith("L7"):
+            if mobility_connected:
+                cov = Coverage.CONDITIONAL
+                note = "O/D 파일 적재 — 계약·승인 자료로 갱신 주기가 김"
+            else:
+                cov, note = Coverage.MISSING, "KTDB·통신사 O/D 계약 필요 (mobility_file)"
+        elif layer.startswith("L8"):
+            if transit_connected:
+                cov = Coverage.AVAILABLE
+                note = "정류장(TAGO)·역 좌표 기반 도보 시간 산출 — 배차·환승 미반영"
+            else:
+                cov, note = Coverage.MISSING, "transit_radius_m·역 좌표 파일 미지정"
 
         if layer.startswith("L11") and listings_connected:
             note += " · 매물·호가 선행 신호 연동됨"

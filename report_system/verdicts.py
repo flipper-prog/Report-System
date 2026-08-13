@@ -43,10 +43,21 @@ def price_verdict(positions: list[MarketPosition]) -> Verdict:
     return Verdict("① 현재 가격 위치", direction, strength, confidence, "최초", rationale)
 
 
+#: 접근성 라벨 → 수요 점수. 현재 인프라이므로 촉매(④)가 아닌 수요(②)에 반영한다.
+_TRANSIT_SCORE = {
+    "대중교통 접근 우수": 1.0,
+    "대중교통 접근 보통": 0.6,
+    "대중교통 접근 취약": 0.2,
+}
+
+
 def demand_verdict(afford: list[AffordabilityResult],
                    sub: SubscriptionForecast,
                    region_stats: object | None = None,
-                   commerce: object | None = None) -> Verdict:
+                   commerce: object | None = None,
+                   migration: object | None = None,
+                   mobility: object | None = None,
+                   transit: object | None = None) -> Verdict:
     rationale: list[str] = []
     scores: list[float] = []
 
@@ -56,6 +67,38 @@ def demand_verdict(afford: list[AffordabilityResult],
         if hh is not None:
             # 가구 증가는 주거 수요의 직접 신호 — 연 1% 증가를 기준선으로 정규화
             scores.append(max(0.0, min(1.0, (hh + 1.0) / 3.0)))
+
+    if migration is not None:
+        rationale.append(f"인구이동(L3): {migration.summary()}")
+        rate = migration.net_rate_per_1000()
+        if rate is not None:
+            # 인구 1천명당 -5 ~ +10 을 0~1 로 정규화 (시군구 분포의 통상 범위)
+            scores.append(max(0.0, min(1.0, (rate + 5.0) / 15.0)))
+        else:
+            label = migration.label
+            if label.startswith("순유입"):
+                scores.append(0.7)
+            elif label.startswith("순유출"):
+                scores.append(0.2)
+            elif label == "이동 균형":
+                scores.append(0.5)
+
+    if mobility is not None:
+        rationale.append(f"생활이동·O/D(L7): {mobility.summary()}")
+        sc = mobility.self_containment
+        if sc is not None:
+            scores.append(min(1.0, sc))
+            targets = mobility.target_regions(3)
+            if targets:
+                rationale.append(
+                    f"→ 실제 유입 통행 기준 광고 타깃 후보: {', '.join(targets)}")
+
+    if transit is not None:
+        rationale.append(f"교통 접근성(L8): {transit.summary()}")
+        s = _TRANSIT_SCORE.get(transit.label)
+        if s is not None:
+            scores.append(s)
+
     if commerce is not None:
         rationale.append(f"생활 인프라(L9): {commerce.summary()}")
         scores.append(commerce.essential_coverage)

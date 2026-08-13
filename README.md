@@ -21,7 +21,7 @@ python3 -m report_system live --config my_site.json --offline # 캐시만 사용
 python3 -m report_system coverage   # 예측 이력 장부 적중률
 python3 -m report_system backtest   # 백테스트 단독 실행 → out/backtest.md
 python3 -m report_system history --site SAMPLE-001   # 회차별 판정·지표 변화
-python3 tests/run_all.py            # 전체 테스트 (132건)
+python3 tests/run_all.py            # 전체 테스트 (172건)
 ```
 
 ### 실데이터 준비 절차
@@ -57,13 +57,24 @@ python3 tests/run_all.py            # 전체 테스트 (132건)
 | L12 청약 | `applyhome` (청약홈 E02) | 〃 | `subscription_regions` |
 | L12 미분양 | `unsold` (파일) | — | `unsold_file` |
 | L1·L2·L4 인구·가구·사업체 | `sgis` (통계청) | `SGIS_CONSUMER_KEY`/`SECRET` | `sgis_adm_cd`, `sgis_years` |
+| L3 인구이동 | `migration` (KOSIS 또는 파일) | `KOSIS_API_KEY` (API 경로만) | `kosis_migration` 또는 `migration_file`, `region_population` |
+| L7 생활이동·O/D | `mobility` (파일) | — | `mobility_file`, `mobility_focus`, `mobility_purpose` |
+| L8 교통망·접근성 | `transit` (TAGO 정류소 + 역 좌표 파일) | `DATA_GO_KR_API_KEY` | `transit_radius_m`, `stations_file` |
 | L9 상권 | `commerce` (소상공인공단) | `DATA_GO_KR_API_KEY` | `commerce_radius_m` |
 | 매물·호가 | `listings` (파일) | — | `listings_file` |
-| L3·L7·L8 | 로드맵 | — | — |
 | L6·L10 (유동·카드) | 민간 라이선스 별도 협의 | — | — |
 
 선택 레이어는 설정 키가 없으면 **건너뛰고 리포트 커버리지표에 '미수집'으로 표기**된다.
-SGIS는 시군구 단위이므로 생활권보다 해상도가 낮다는 한계가 항상 병기된다.
+`doctor` 의 `[2] 선택 레이어 가용성` 이 어떤 레이어가 켜지는지, 지정한 파일이
+실제로 있는지를 먼저 알려준다.
+
+레이어별로 반드시 병기되는 한계
+- **L1·L2·L4** — SGIS 집계 단위가 시군구여서 생활권보다 해상도가 낮다.
+- **L3** — `region_population` 미지정 시 순이동률 대신 총이동 대비 비중으로 판정한다.
+- **L7** — KTDB·통신사 O/D는 계약·승인 자료로 갱신 주기가 길어 최근 개통·입주
+  효과가 반영되지 않는다.
+- **L8** — 직선거리에 보행 보정계수 1.3을 적용한 환산값이며, 배차 간격·환승
+  편의·실제 보행 경로는 평가에 포함되지 않는다.
 
 ### 커넥터 동작
 
@@ -75,11 +86,14 @@ SGIS는 시군구 단위이므로 생활권보다 해상도가 낮다는 한계�
 | 응답 형식 | 실거래는 신형(`aptNm`)·구형(`아파트`) 태그 모두 파싱. 해제 거래(`cdealType=O`)는 정제 단계에서 제거·집계 |
 | 미제공 필드 | 청약홈은 가격 갭·동시 공급을 제공하지 않음 → 해당 조건을 매칭에서 제외하고 리포트에 LIMITATION 표기 |
 | 매물·호가 | 무료 공개 API 없음 → `listings_file`(CSV/JSON) 로 적재. 스키마: `asof,listings,ask_ppsm,traded_ppsm`. 부적합 행은 사유와 함께 제외되고 기준일 이후 관측은 자동 배제 (예시: `examples/listings_sample.csv`) |
+| 파일 적재 스키마 | 인구이동 `period,moved_in,moved_out[,from_region]` · O/D `origin,destination,trips[,purpose]` · 역 좌표 `name,lat,lng[,lines]` · 미분양 `month,unsold[,after_done]` (예시 파일 모두 `examples/`) |
+| 접근성 표현 통제 | 최근접역이 도보 10분 이내일 때만 '도보 n분' 문장이 생성된다. 그 밖에는 문장을 만들지 않고 리포트에 **'역세권 표현 사용 불가'** 와 실측 거리를 표기한다 |
 
 ## 아키텍처
 
 ```
 [실데이터] connectors/  molit(E01 실거래) · applyhome(E02 청약) · sgis(L1·L2·L4 인구·가구·사업체)
+                        migration(L3 인구이동) · mobility(L7 O/D) · transit(L8 접근성)
                         commerce(L9 상권) · unsold(L12 미분양) · listings(매물·호가)
            └ 캐시·재시도·수집이력(Provenance) → live.py 가 설정(JSON)과 결합
 [샘플]     sample_data(합성)
@@ -114,7 +128,8 @@ SGIS는 시군구 단위이므로 생활권보다 해상도가 낮다는 한계�
 | 표본이 지지하지 않는 수치는 내지 않는다 | 밴드 롤업(`pricing.py`), 청약 정성 전환(`subscription.py`), 치명 결함 중단(`validation.py`) | 5.4.5·5.10 (P1-5) |
 | 검증되지 않은 문장은 나가지 않는다 | 린트 게이트(`claims.py`) — FORECAST는 '사용 가능' 불가, 금지 표현 차단 | 5.9·14.5 |
 | 신축 비교군은 분양권 우선 | 분양권 거래 가중(`pricing.py`) | P1-1 |
-| 현장이 분석을 교정한다 | 거절 사유 vs 판정 정합성(`feedback.py`) | 5.11.3 (P1-3) |
+| 현장이 분석을 교정한다 | 거절 사유 vs 판정 정합성, 방문객 거주지 vs 인구이동 유입 출발지(`feedback.py`) | 5.11.3 (P1-3) |
+| 접근성은 주장이 아니라 좌표로 말한다 | 최근접역 도보 10분 이내에서만 문장 생성(`transit.py`·`pipeline.py`) | 5.9 광고 표현 통제 |
 | 단일 AI 점수로 합치지 않는다 | 4개 독립 판정(`verdicts.py`) | 5.8 |
 | 예측은 사후 검증된다 | 시점 분리 백테스트(`backtest.py`) — 운영과 동일 함수 호출 | 5.4.2·E.2 |
 | 상품이 다르면 모델도 다르다 | 상품 프로파일(`profiles.py`) — 비교군·표본·청약 적용 분리 | P2-2 |
@@ -125,8 +140,9 @@ SGIS는 시군구 단위이므로 생활권보다 해상도가 낮다는 한계�
 ```
 report_system/             파이프라인 패키지 (stdlib only)
   connectors/              실데이터 커넥터 (molit=E01, applyhome=E02, base=캐시·이력)
+  geo.py                   좌표 유틸 (직선거리·보행 보정 도보 시간)
   live.py                  설정 JSON + 커넥터 → 리포트
-tests/                     unittest 스위트 (132건) — run_all.py 로 일괄 실행
+tests/                     unittest 스위트 (172건) — run_all.py 로 일괄 실행
 examples/site_config.json  실데이터 실행 설정 예시
 proposal/                  사업 제안서 (md + docx 납품본 + 변환 스크립트)
 docs/                      설계검토보고서 (P0/P1/P2 진단)
@@ -139,6 +155,8 @@ out/                       생성 산출물·캐시·장부 (git 미추적)
 |------|------|
 | 실거래(E01)·청약(E02) | **구현 완료** — 캐시·재시도·수집이력 포함 |
 | 매물·호가 (P1-2 선행 신호) | **파일 수집 구현** — 무료 공개 API 부재로 CSV/JSON 적재 방식. `listings_file` 지정 시 활성화 |
+| 인구·가구·사업체(L1·L2·L4)·인구이동(L3)·접근성(L8)·상권(L9) | **구현 완료** — 각 커넥터의 공간 해상도·환산 한계는 리포트에 병기 |
+| 생활이동·O/D (L7) | **파일 적재 구현** — KTDB·통신사 자료는 계약·승인 대상. 파일 확보 시 즉시 활성화 |
 | 소득·구매력 (L5) | 공공 대체 로그정규 근사 — 설정의 분포 파라미터 기반, LIMITATION 표기 |
 | 조정계수 | 연식·층·단계 실현률·DSR 가정은 파라미터 노출. **실데이터 백테스트로 교정 전까지 예시값** |
 | 드리프트·상품 프로파일·커버리지표 | **구현 완료** (P2-1·P2-2·P2-4) |

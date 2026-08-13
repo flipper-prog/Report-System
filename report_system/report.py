@@ -57,6 +57,9 @@ class ReportInputs:
     region_stats: object | None = None
     commerce: object | None = None
     unsold: object | None = None
+    migration: object | None = None
+    mobility: object | None = None
+    transit: object | None = None
 
     def __post_init__(self):
         for f in ("backtests", "coverage_rows", "model_cards", "drifts",
@@ -265,19 +268,27 @@ def generate_markdown(x: ReportInputs) -> str:
         add("")
 
     # 7-3. 지역 기반 통계
-    if x.region_stats is not None or x.commerce is not None or x.unsold is not None:
-        add("## 7-3. 지역 기반 통계 (L1·L2·L4·L9·L12)")
+    _layer_rows = [
+        ("L1·L2·L4 인구·가구·사업체", x.region_stats),
+        ("L3 인구이동", x.migration),
+        ("L7 생활이동·O/D", x.mobility),
+        ("L8 교통망·접근성", x.transit),
+        ("L9 상권", x.commerce),
+        ("L12 미분양", x.unsold),
+    ]
+    _present = [(n, o) for n, o in _layer_rows if o is not None]
+    if _present:
+        add("## 7-3. 지역 기반 통계 (L1·L2·L3·L4·L7·L8·L9·L12)")
         add("")
         add("| 레이어 | 요약 |")
         add("|--------|------|")
-        if x.region_stats is not None:
-            add(f"| L1·L2·L4 인구·가구·사업체 | {x.region_stats.summary()} |")
-        if x.commerce is not None:
-            add(f"| L9 상권 | {x.commerce.summary()} |")
-        if x.unsold is not None:
-            add(f"| L12 미분양 | {x.unsold.summary()} |")
+        for name, obj in _present:
+            add(f"| {name} | {obj.summary()} |")
         add("")
-        for obj in (x.region_stats, x.commerce, x.unsold):
+        if x.transit is not None:
+            add(f"**접근성 표현 가능 범위**: {x.transit.ad_note()}")
+            add("")
+        for _, obj in _present:
             for lim in (getattr(obj, "limitations", []) or []):
                 add(f"- {lim}")
         add("")

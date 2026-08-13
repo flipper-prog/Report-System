@@ -125,8 +125,8 @@ def cmd_doctor(config: str, skip_api: bool) -> int:
     """실행 전 설정·연결·데이터 가용성 진단."""
     import json
 
-    from .doctor import (check_apis, check_config, match_comparables,
-                         summarize)
+    from .doctor import (check_apis, check_config, check_layers,
+                         match_comparables, summarize)
 
     cfg = json.loads(pathlib.Path(config).read_text(encoding="utf-8"))
     checks = check_config(cfg)
@@ -134,15 +134,21 @@ def cmd_doctor(config: str, skip_api: bool) -> int:
     for c in checks:
         print(c.line())
 
+    print("\n[2] 선택 레이어 가용성")
+    layer_checks = check_layers(cfg)
+    for c in layer_checks:
+        print(c.line())
+    checks += layer_checks
+
     names: list[str] = []
     if not skip_api:
-        print("\n[2] API 연결 검사")
+        print("\n[3] API 연결 검사")
         api_checks, names = check_apis(cfg)
         for c in api_checks:
             print(c.line())
         checks += api_checks
 
-        print("\n[3] 비교단지 매칭")
+        print("\n[4] 비교단지 매칭")
         m = match_comparables(cfg, names)
         for c in m:
             print(c.line())
