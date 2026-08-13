@@ -156,6 +156,9 @@ def load(path: str, focus: str, purpose: str | None = None) -> ODMatrix:
     od = ODMatrix(focus=focus, purpose=purpose,
                   source=f"생활이동·O/D 파일 ({p.name})")
     matched_rows = 0
+    # focus 로 인식된 실제 지역명들. '중구'처럼 여러 시·도에 같은 이름이 있으면
+    # 서로 다른 지역이 하나로 합산되므로 반드시 경고해야 한다.
+    matched_names: set[str] = set()
     for i, row in enumerate(_read_rows(p), start=2):
         try:
             o = str(row["origin"]).strip()
@@ -171,6 +174,10 @@ def load(path: str, focus: str, purpose: str | None = None) -> ODMatrix:
             continue
 
         o_in, d_in = _matches(o, focus), _matches(d, focus)
+        if o_in:
+            matched_names.add(o)
+        if d_in:
+            matched_names.add(d)
         if o_in and d_in:
             od.internal += trips
         elif o_in:
@@ -184,6 +191,11 @@ def load(path: str, focus: str, purpose: str | None = None) -> ODMatrix:
     if matched_rows == 0:
         od.limitations.append(
             f"'{focus}' 와 연결된 통행이 0건 — 지역명 표기가 자료와 일치하는지 확인 필요")
+    elif len(matched_names) > 1:
+        od.limitations.append(
+            f"'{focus}' 에 {len(matched_names)}개 지역명이 매칭되어 합산됨"
+            f" ({', '.join(sorted(matched_names)[:4])}) — 동명 행정구역이 섞였을 수 "
+            "있으니 mobility_focus 를 시·도까지 포함해 지정하십시오")
     if purpose:
         od.limitations.append(f"통행 목적 '{purpose}' 만 집계 — 전체 통행과 다름")
     od.limitations.append(

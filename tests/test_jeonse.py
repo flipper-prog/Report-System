@@ -187,6 +187,20 @@ class TestJeonseAnalysis(unittest.TestCase):
         r = analyze(rents, _sales(20, 10_000_000, (1, 11)), ASOF)
         self.assertEqual(r.n_jeonse, 20)
 
+    def test_same_month_future_records_excluded(self):
+        """월 단위로만 걸러내면 기준일과 같은 달의 이후 거래가 새어 들어온다."""
+        rents = _rents(20, 7_000_000, (1, 11))
+        sales = _sales(20, 10_000_000, (1, 11))
+        base = analyze(rents, sales, ASOF)
+        rents.append(RentRecord("C01", date(2026, 7, 31), 84.9, 10,
+                                9_000_000_000))          # 기준일 6일 뒤
+        sales.append(Transaction("C01", date(2026, 7, 31), 84.9, 10,
+                                 9_000_000_000))
+        after = analyze(rents, sales, ASOF)
+        self.assertEqual(after.n_jeonse, base.n_jeonse)
+        self.assertEqual(after.n_sale, base.n_sale)
+        self.assertAlmostEqual(after.ratio_pct, base.ratio_pct, places=9)
+
     def test_rising_trend_detected(self):
         rents = _rents(12, 7_500_000, (1, 5)) + _rents(12, 6_000_000, (7, 11))
         sales = _sales(12, 10_000_000, (1, 5)) + _sales(12, 10_000_000, (7, 11))
@@ -272,6 +286,23 @@ class TestVerdictAndPipeline(unittest.TestCase):
         self.assertTrue(any("전세가율" in r for r in v1.rationale))
         rows = {r.layer.split()[0]: r for r in res.inputs.coverage_rows}
         self.assertIn("전월세 연동됨", rows["L11"].note)
+
+    def test_future_rent_records_abort_analysis(self):
+        """매매와 같은 규율 — 기준일 이후 전월세는 치명 결함으로 분석을 중단한다."""
+        from report_system.pipeline import FatalInputError
+        rents = sd.build_rents(sd.build_comparables())
+        rents.append(RentRecord("C-OLD1", sd.ASOF + timedelta(days=3), 84.9, 10,
+                                700_000_000))
+        with self.assertRaises(FatalInputError) as ctx:
+            self._run(rents=rents)
+        self.assertIn("전월세", str(ctx.exception))
+
+    def test_invalid_rent_records_are_not_fatal(self):
+        from report_system.validation import validate_rents
+        bad = [RentRecord("C", ASOF, 0.0, 10, 0)]
+        issues = validate_rents(bad, ASOF)
+        self.assertTrue(issues)
+        self.assertFalse(any(i.fatal for i in issues))
 
     def test_coverage_note_when_rent_missing(self):
         res = self._run()

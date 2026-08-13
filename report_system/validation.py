@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 
-from .models import Site, Transaction
+from .models import RentRecord, Site, Transaction
 
 
 @dataclass
@@ -63,3 +63,27 @@ def validate_transactions(txs: list[Transaction], asof: date) -> list[Issue]:
 
 def has_fatal(issues: list[Issue]) -> bool:
     return any(i.fatal for i in issues)
+
+
+def validate_rents(rents: list[RentRecord], asof: date) -> list[Issue]:
+    """전월세 입력 검증.
+
+    매매 거래와 같은 규율을 적용한다 — 전세가율은 가격 판정에 직접 들어가므로,
+    기준일 이후 계약이 섞이면 매매와 똑같이 미래 정보 누출이 된다.
+    """
+    issues: list[Issue] = []
+    if not rents:
+        return issues
+
+    future = [r for r in rents if r.deal_date > asof]
+    if future:
+        issues.append(Issue(
+            "RENT_FUTURE_LEAK",
+            f"분석 기준일({asof}) 이후 전월세 계약 {len(future)}건이 입력에 포함됨",
+            fatal=True))
+    bad = [r for r in rents if r.deposit <= 0 or r.area_m2 <= 0]
+    if bad:
+        issues.append(Issue(
+            "RENT_INVALID",
+            f"보증금·면적 오류 {len(bad)}건 — 해당 건은 분석에서 제외됨", fatal=False))
+    return issues

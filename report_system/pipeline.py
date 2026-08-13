@@ -34,7 +34,8 @@ from .subscription import SubscriptionForecast, predict
 from .supply import probability_adjusted
 from .timeseries import monthly_trend
 from .transactions import RULES_VERSION, clean
-from .validation import has_fatal, validate_site, validate_transactions
+from .validation import (has_fatal, validate_rents, validate_site,
+                         validate_transactions)
 from .verdicts import (catalyst_verdict, demand_verdict, price_verdict,
                        supply_verdict)
 
@@ -78,7 +79,8 @@ def run(
     provenance: "list | None" = None,       # 수집 이력 → 근거원장 출처 연결
 ) -> PipelineResult:
     # 1) 입력 검증 — 치명 결함 시 중단
-    issues = validate_site(site, asof) + validate_transactions(txs, asof)
+    issues = (validate_site(site, asof) + validate_transactions(txs, asof)
+              + validate_rents(rents or [], asof))
     if has_fatal(issues):
         msgs = "; ".join(i.message for i in issues if i.fatal)
         raise FatalInputError(f"분석 중단: {msgs}")

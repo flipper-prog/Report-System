@@ -307,10 +307,12 @@ def holdout_dispersion(site: Site, comps: dict[str, Comparable],
     조정이 옳을수록 연식·층이 다른 거래들이 한 점으로 모이므로 값이 작아진다.
     타입별로 재고 표본 가중 평균한다.
     """
+    if not test_txs:
+        return None
+    at = max(x.trade_date for x in test_txs)     # 검증 구간의 기준 시점
     parts: list[tuple[float, int]] = []
     for t in site.types:
-        adj = [adjusted_ppsm(tx, comps[tx.complex_id], max(x.trade_date for x in test_txs),
-                             t.floors, coef)
+        adj = [adjusted_ppsm(tx, comps[tx.complex_id], at, t.floors, coef)
                for tx in test_txs
                if tx.complex_id in comps
                and t.area_m2 * 0.8 <= tx.area_m2 <= t.area_m2 * 1.2]

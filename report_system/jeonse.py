@@ -109,7 +109,13 @@ class JeonseResult:
 
 
 def _within(d: date, asof: date, months: int) -> bool:
-    """asof 기준 months개월 이내인지 (월 단위 근사)."""
+    """asof 기준 months개월 이내인지.
+
+    월 단위로만 비교하면 기준일과 같은 달의 '기준일 이후' 거래가 통과한다
+    (asof 7/25, 거래 7/31 → 월차 0). 미래 정보 누출이므로 날짜로 먼저 막는다.
+    """
+    if d > asof:
+        return False
     delta = (asof.year - d.year) * 12 + (asof.month - d.month)
     return 0 <= delta < months
 

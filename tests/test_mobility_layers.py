@@ -231,6 +231,18 @@ class TestMobility(unittest.TestCase):
         self.assertEqual(od.internal, 100)
         self.assertEqual(od.total_inbound, 50)
 
+    def test_homonym_regions_flagged(self):
+        """'중구'처럼 여러 시·도에 같은 이름이 있으면 조용히 합산하지 않는다."""
+        csv = ("origin,destination,trips\n서울 중구,서울 중구,100\n"
+               "부산 중구,서울 강남구,50\n")
+        od = mobility.load(self._write(csv, "hom.csv"), focus="중구")
+        self.assertTrue(any("동명 행정구역" in x for x in od.limitations))
+
+    def test_single_matched_name_not_flagged(self):
+        csv = "origin,destination,trips\n서울 중구,서울 중구,100\n서초구,서울 중구,50\n"
+        od = mobility.load(self._write(csv, "one.csv"), focus="서울 중구")
+        self.assertFalse(any("동명 행정구역" in x for x in od.limitations))
+
     def test_no_match_flagged(self):
         od = mobility.load(self._write(OD_CSV), focus="없는구")
         self.assertIsNone(od.self_containment)
