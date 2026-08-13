@@ -119,7 +119,7 @@ class TestFullStack(unittest.TestCase):
                         "확률조정 공급", "환금성", "지역 기반 통계",
                         "주택건설실적",
                         "개발계획 촉매카드", "조기경보", "표현 린트", "근거원장",
-                        "분양가 결정 시뮬레이션"):
+                        "분양가 결정 시뮬레이션", "판매 논리 산출물"):
             self.assertIn(section, md, f"'{section}' 절이 누락됨")
 
     def test_all_four_verdicts_cite_their_layers(self):
@@ -197,6 +197,13 @@ class TestFullStack(unittest.TestCase):
             self.assertIn(token, md)
 
     # ── 렌더링 ──────────────────────────────────────────────────────────────
+    def test_salespack_answers_every_axis_when_fully_connected(self):
+        """모든 레이어가 켜졌으면 6축 전부 근거로 답할 수 있어야 한다."""
+        pack = self.res.inputs.salespack
+        unanswered = [a.code for a in pack.answers if not a.answerable]
+        self.assertEqual(unanswered, [], f"답변 불가 축이 남음: {unanswered}")
+        self.assertEqual(pack.lint.blocked, [])
+
     def test_html_render_is_self_contained(self):
         h = markdown_to_html(self.res.markdown, "전체 통합")
         self.assertTrue(h.startswith("<!doctype html>"))

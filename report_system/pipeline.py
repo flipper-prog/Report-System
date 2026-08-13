@@ -30,6 +30,7 @@ from .pricing import (DEFAULT_COEF, Coefficients, market_positions,
 from .profiles import applicability_note, get as get_profile
 from .report import ReportInputs, generate_markdown
 from .runstore import RunSnapshot, RunStore, describe_change
+from .salespack import build as build_salespack
 from .scenarios import build as build_scenarios
 from .subscription import SubscriptionForecast, predict
 from .supply import probability_adjusted
@@ -247,6 +248,16 @@ def run(
     claims = _build_claims(site, positions, sub_fc, cards, transit)
     lint_res = lint(claims)
 
+    # 10-2) 판매 논리 산출물 — 분석을 영업 언어로 옮기는 통제 지점 (제6장)
+    pack = build_salespack(
+        positions=positions, verdicts=verdicts, afford=afford,
+        sub_forecast=sub_fc, supply=sa, site_units=site.total_units,
+        catalysts=cards, alerts=alerts, feedback=feedback,
+        liquidity=liq, jeonse=jeonse_res, unsold=unsold, housing=housing,
+        price_decision=decision, region_stats=region_stats,
+        migration=migration, mobility=mobility, transit=transit,
+        commerce=commerce)
+
     # 11) 근거원장 — 리포트의 핵심 수치마다 출처·산출식·표본·한계를 등재
     ledger_ev = _build_evidence(
         provenance=provenance, cr=cr, bands=bands, anchor=anchor, coef=coef,
@@ -270,7 +281,8 @@ def run(
         region_stats=region_stats, commerce=commerce, unsold=unsold,
         migration=migration, mobility=mobility, transit=transit,
         jeonse=jeonse_res, evidence=ledger_ev, housing=housing,
-        income_stats=income_stats, price_decision=decision)
+        income_stats=income_stats, price_decision=decision,
+        salespack=pack)
     return PipelineResult(generate_markdown(inputs), inputs, fid)
 
 

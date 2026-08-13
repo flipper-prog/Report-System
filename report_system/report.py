@@ -65,6 +65,7 @@ class ReportInputs:
     housing: object | None = None
     income_stats: object | None = None
     price_decision: object | None = None
+    salespack: object | None = None
 
     def __post_init__(self):
         for f in ("backtests", "coverage_rows", "model_cards", "drifts",
@@ -406,6 +407,16 @@ def generate_markdown(x: ReportInputs) -> str:
         for c, reason in x.lint.blocked:
             add(f"- ~~{c.text}~~ — {reason}")
     add("")
+
+    # 10-2. 판매 논리 산출물
+    if x.salespack is not None:
+        add("## 10-2. 판매 논리 산출물 (메시지맵·근거카드·거절 대응)")
+        add("")
+        add("*상담 조직이 실제로 쓰는 문장입니다. 광고·정보 허브·상담이 같은 근거로 "
+            "말하도록, 분석 결과에서 직접 생성되고 표현 린트를 통과한 것만 실립니다.*")
+        add("")
+        add(x.salespack.as_markdown())
+        add("")
 
     # 11. 근거원장
     if x.evidence is not None:
