@@ -80,9 +80,17 @@ class Band:
     q25: float
     q50: float
     q75: float
+    #: **실제 비교 거래 건수**. 분양권 가중은 여기에 반영하지 않는다 —
+    #: 근거의 양을 가중치로 부풀리면 신뢰도 판정과 롤업 게이트가 함께 흔들린다.
     n: int
     rolled_up: bool
     note: str = ""
+    #: 분포 산출에 실제로 투입된 가중 표본 수 (n 이상). 투명성 목적.
+    n_weighted: int = 0
+
+    def __post_init__(self):
+        if not self.n_weighted:
+            self.n_weighted = self.n
 
 
 @dataclass
@@ -170,7 +178,14 @@ def quality_adjusted_bands(
 
     for t in site.types:
         # 면적 유사 + 거리 조건 비교 거래 수집. 분양권은 가중 반복. (P1-1)
-        samples: list[tuple[str, float]] = []  # (floor_band, adjusted_ppsm)
+        #
+        # 가중은 분포 계산에만 쓴다. 표본 수까지 가중치로 세면 "거래 256건"이라고
+        # 적고 실제로는 197건인 상태가 되고, 그 부풀린 수가 신뢰도 판정과 롤업
+        # 게이트를 그대로 통과시킨다. 근거의 양은 실제 관측 건수로만 센다.
+        vals_by_fb: dict[str, list[float]] = {}   # 가중 반영 (분포용)
+        obs_by_fb: dict[str, int] = {}            # 실제 거래 건수 (근거량)
+        weighted = 0
+        observed = 0
         for tx in txs:
             comp = comps.get(tx.complex_id)
             if comp is None or comp.dist_m > max_dist:
@@ -180,35 +195,51 @@ def quality_adjusted_bands(
             adj = _adjust_ppsm(tx, comp, asof, t.floors, coef, tax_base)
             weight = PRESALE_WEIGHT if comp.is_presale_right else 1
             fb = _floor_band(t, tx.floor)
-            samples.extend([(fb, adj)] * weight)
-
-        by_fb: dict[str, list[float]] = {}
-        for fb, v in samples:
-            by_fb.setdefault(fb, []).append(v)
+            vals_by_fb.setdefault(fb, []).extend([adj] * weight)
+            obs_by_fb[fb] = obs_by_fb.get(fb, 0) + 1
+            weighted += weight
+            observed += 1
 
         made_fb_level = False
         for fb in ("저층", "기준층", "상층"):
-            vals = by_fb.get(fb, [])
-            if len(vals) >= min_samples:
+            vals = vals_by_fb.get(fb, [])
+            n_obs = obs_by_fb.get(fb, 0)
+            if n_obs >= min_samples:
                 q25, q50, q75 = _quantile3(vals)
-                bands.append(Band("타입·층구간", t.name, fb, q25, q50, q75, len(vals), rolled_up=False))
+                bands.append(Band("타입·층구간", t.name, fb, q25, q50, q75,
+                                  n_obs, rolled_up=False,
+                                  n_weighted=len(vals)))
                 made_fb_level = True
 
-        all_vals = [v for _, v in samples]
-        if len(all_vals) >= min_samples:
-            q25, q50, q75 = _quantile3(all_vals)
+        all_vals = [v for vs in vals_by_fb.values() for v in vs]
+        if not all_vals:
+            continue
+        q25, q50, q75 = _quantile3(all_vals)
+        if observed >= min_samples:
             bands.append(Band(
-                "타입", t.name, None, q25, q50, q75, len(all_vals),
+                "타입", t.name, None, q25, q50, q75, observed,
                 rolled_up=not made_fb_level,
-                note="층구간 표본 미달로 타입 수준 롤업" if not made_fb_level else ""))
-        elif all_vals:
-            # 타입 수준도 미달 → 현장 수준 롤업은 아래에서 일괄 처리
+                note=("층구간 표본 미달로 타입 수준 롤업"
+                      if not made_fb_level else ""),
+                n_weighted=weighted))
+        else:
+            # 타입 수준도 미달 → 참고치로만 남긴다
             bands.append(Band(
-                "타입", t.name, None, *_quantile3(all_vals), len(all_vals),
-                rolled_up=True,
-                note=f"표본 {len(all_vals)}건(<{min_samples}) — 참고치. 수치 제시 대신 정성 판단 권고"))
+                "타입", t.name, None, q25, q50, q75, observed, rolled_up=True,
+                note="; ".join(x for x in (
+                    f"실제 거래 {observed}건(<{min_samples}) — 참고치. "
+                    "수치 제시 대신 정성 판단 권고",
+                    _weight_note(observed, weighted)) if x),
+                n_weighted=weighted))
 
     return bands
+
+
+def _weight_note(n_obs: int, n_weighted: int) -> str:
+    if n_weighted <= n_obs:
+        return ""
+    return (f"분양권 가중 적용 — 분포 산출 유효표본 {n_weighted}, "
+            f"실제 거래 {n_obs}건")
 
 
 def market_positions(site: Site, bands: list[Band],

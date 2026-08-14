@@ -252,7 +252,12 @@ class TestBacktestRealtime(unittest.TestCase):
         site = sd.build_site()
         realtime = backtest_price_bands(site, comps, txs, cuts)
         oracle = backtest_price_bands(site, comps, txs, cuts, settle_days=0)
-        self.assertLess(realtime.n, oracle.n)
+        # 학습 표본이 실제로 달라져야 한다 — 같은 구간이 나오면 절단이 무의미
+        self.assertLessEqual(realtime.n, oracle.n)
+        self.assertGreater(
+            sum(1 for a, b in zip(realtime.folds, oracle.folds)
+                if (a.lo, a.hi) != (b.lo, b.hi)), 0)
+        self.assertNotEqual(realtime.coverage, oracle.coverage)
 
     def test_complete_only_helper(self):
         txs = [_tx(date(2026, 7, 20)), _tx(date(2026, 5, 1))]

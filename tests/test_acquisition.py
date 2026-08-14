@@ -207,3 +207,108 @@ class TestPipelineWiring(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSampleCountIntegrity(unittest.TestCase):
+    """근거의 양을 가중치로 부풀리지 않는다.
+
+    분양권 우선 가중(P1-1)은 분포를 신축 쪽으로 당기기 위한 장치다. 그 가중을
+    표본 수에까지 반영하면 "비교 거래 256건"이라고 적고 실제로는 197건인 상태가
+    되고, 부풀린 수가 신뢰도 판정("n>=30이면 높음")과 최소 표본 게이트를 그대로
+    통과시킨다.
+    """
+
+    def _fixture(self, n_presale=10, n_normal=10):
+        site = Site(id="S", name="현장", address="a", lat=37.0, lng=127.0,
+                    total_units=300,
+                    types=[TypeSpec("84A", 84.0, 300, 500_000_000, 0, (1, 25))],
+                    region="R")
+        comps = {
+            "P": Comparable(id="P", name="분양권", built_year=2026, units=400,
+                            brand_tier=2, dist_m=300, is_presale_right=True),
+            "N": Comparable(id="N", name="일반", built_year=2020, units=400,
+                            brand_tier=2, dist_m=300),
+        }
+        txs = ([Transaction("P", date(2026, 3, 5), 84.0, 12,
+                            500_000_000 + i * 1_000_000) for i in range(n_presale)]
+               + [Transaction("N", date(2026, 3, 5), 84.0, 12,
+                              480_000_000 + i * 1_000_000) for i in range(n_normal)])
+        return site, comps, txs
+
+    def _type_band(self, site, comps, txs):
+        bands = quality_adjusted_bands(site, comps, txs, ASOF)
+        return next(b for b in bands if b.level == "타입")
+
+    def test_n_counts_real_transactions(self):
+        b = self._type_band(*self._fixture(10, 10))
+        self.assertEqual(b.n, 20)
+
+    def test_weighted_count_exposed_separately(self):
+        b = self._type_band(*self._fixture(10, 10))
+        self.assertEqual(b.n_weighted, 30)   # 분양권 10건 × 2 + 일반 10건
+        self.assertGreater(b.n_weighted, b.n)
+
+    def test_weighting_still_shifts_the_distribution(self):
+        """가중을 표본 수에서 뺐다고 분포 가중까지 사라지면 안 된다."""
+        site, comps, txs = self._fixture(10, 10)
+        weighted = self._type_band(site, comps, txs)
+        plain = dict(comps)
+        plain["P"] = Comparable(id="P", name="분양권", built_year=2026, units=400,
+                                brand_tier=2, dist_m=300, is_presale_right=False)
+        unweighted = self._type_band(site, plain, txs)
+        self.assertNotAlmostEqual(weighted.q50, unweighted.q50, delta=1.0)
+        # 가중된 쪽(분양권)의 중위로 끌려가야 한다
+        presale_only = self._type_band(site, comps, txs[:10])
+        self.assertLess(abs(weighted.q50 - presale_only.q50),
+                        abs(unweighted.q50 - presale_only.q50))
+
+    def test_weight_alone_cannot_pass_min_sample_gate(self):
+        # 실제 5건(분양권) → 가중하면 10건이지만 최소 표본 8건을 넘지 못한다
+        b = self._type_band(*self._fixture(5, 0))
+        self.assertEqual(b.n, 5)
+        self.assertEqual(b.n_weighted, 10)
+        self.assertTrue(b.rolled_up)
+        self.assertIn("참고치", b.note)
+
+    def test_gap_is_disclosed_on_the_band(self):
+        # 정상 밴드는 표의 '실제 거래 / 유효표본' 두 열로 드러난다
+        b = self._type_band(*self._fixture(10, 10))
+        self.assertEqual((b.n, b.n_weighted), (20, 30))
+
+    def test_undersample_note_explains_why_weight_did_not_save_it(self):
+        b = self._type_band(*self._fixture(5, 0))
+        self.assertIn("유효표본 10", b.note)
+        self.assertIn("실제 거래 5건", b.note)
+
+    def test_no_weighting_leaves_counts_equal(self):
+        site, comps, txs = self._fixture(0, 12)
+        b = self._type_band(site, comps, txs)
+        self.assertEqual(b.n, b.n_weighted)
+        self.assertNotIn("가중", b.note)
+
+    def test_confidence_uses_real_count(self):
+        from report_system.verdicts import price_verdict
+        # 실제 20건 → 가중하면 30건이지만 '높음'(n>=30)이 되어선 안 된다
+        site, comps, txs = self._fixture(10, 10)
+        bands = quality_adjusted_bands(site, comps, txs, ASOF)
+        v = price_verdict(market_positions(site, bands))
+        self.assertNotEqual(v.confidence, "높음")
+
+    def test_report_separates_the_two_columns(self):
+        from report_system import sample_data as sd
+        from report_system.ledger import ForecastLedger
+        from report_system.pipeline import run
+        comps = sd.build_comparables()
+        res = run(site=sd.build_site(), comps=comps,
+                  txs=sd.build_transactions(comps),
+                  sub_history=sd.build_subscription_history(),
+                  supply_items=sd.build_supply(),
+                  catalyst_plans_old=sd.build_catalysts(),
+                  catalyst_plans_new=sd.build_catalysts(),
+                  dataset_meta=sd.build_dataset_meta(),
+                  incomes=sd.build_incomes(), feedback=sd.build_feedback(),
+                  listings=sd.build_listing_snapshots(),
+                  asof=sd.ASOF, ledger=ForecastLedger())
+        self.assertIn("실제 거래 | 유효표본", res.markdown)
+        for b in res.inputs.bands:
+            self.assertLessEqual(b.n, b.n_weighted)

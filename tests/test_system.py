@@ -60,14 +60,20 @@ class TestPricing(unittest.TestCase):
         self.assertTrue(all(b.rolled_up for b in t84))
 
     def test_presale_priority_weighting(self):
-        """분양권 거래는 가중되어 표본 수에 더 크게 기여한다 (P1-1)."""
+        """분양권 거래는 분포 산출에서 가중되지만, 근거의 양은 부풀리지 않는다 (P1-1)."""
         site = sd.build_site()
         comps = sd.build_comparables()
         txs = [Transaction("C-PRS1", sd.ASOF - timedelta(days=30 * i), 84.9, 10,
                            900_000_000) for i in range(1, 5)]
         bands = quality_adjusted_bands(site, comps, txs, sd.ASOF)
         t84 = next(b for b in bands if b.type_name == "84A" and b.level == "타입")
-        self.assertEqual(t84.n, 8)   # 4건 × 가중 2
+        # 근거의 양은 실제 거래 건수로만 센다 — 가중은 분포에만 반영한다.
+        # 종전에는 4건이 8건으로 세어져 최소 표본 게이트를 그대로 통과했다.
+        self.assertEqual(t84.n, 4)
+        self.assertEqual(t84.n_weighted, 8)   # 4건 × 가중 2 (분포 산출용)
+        self.assertTrue(t84.rolled_up)
+        self.assertIn("참고치", t84.note)
+        self.assertIn("유효표본 8", t84.note)
 
 
 class TestSupply(unittest.TestCase):

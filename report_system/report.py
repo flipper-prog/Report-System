@@ -177,12 +177,17 @@ def generate_markdown(x: ReportInputs) -> str:
     # 4. 가격
     add("## 4. 품질조정 가격 밴드와 시장 위치")
     add("")
-    add("| 수준 | 타입 | 층구간 | q25 | 중위 | q75 | n | 롤업 |")
-    add("|------|------|--------|-----|------|-----|---|------|")
+    add("| 수준 | 타입 | 층구간 | q25 | 중위 | q75 | 실제 거래 | 유효표본 | 롤업 |")
+    add("|------|------|--------|-----|------|-----|-----------|----------|------|")
     for b in x.bands:
         add(f"| {b.level} | {b.type_name} | {b.floor_band or '-'} | "
             f"{_fmt_won(b.q25)}/㎡ | {_fmt_won(b.q50)}/㎡ | {_fmt_won(b.q75)}/㎡ | "
-            f"{b.n} | {'예' if b.rolled_up else '-'} |")
+            f"{b.n} | {b.n_weighted if b.n_weighted != b.n else '-'} | "
+            f"{'예' if b.rolled_up else '-'} |")
+    add("")
+    add("*'실제 거래'는 관측 건수, '유효표본'은 분양권 우선 가중을 반영한 분포 "
+        "산출용 수치입니다. 신뢰도 판정과 최소 표본 게이트는 **실제 거래 건수**로만 "
+        "합니다 — 가중치로 근거의 양을 부풀리지 않기 위해서입니다.*")
     add("")
     for b in x.bands:
         if b.note:
