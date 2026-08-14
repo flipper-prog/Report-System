@@ -219,7 +219,10 @@ def run(
         alerts += scan_competitors(competitors_old or [], competitors_new, asof)
 
     # 8) 판정 4종
-    jeonse_res = analyze_jeonse(rents or [], cr.kept, asof) if rents else None
+    jeonse_res = (analyze_jeonse(
+        rents or [], cr.kept, asof,
+        subject_types=[(t.area_m2, t.units) for t in site.types])
+        if rents else None)
     v1 = price_verdict(positions, jeonse=jeonse_res)
     v2 = demand_verdict(afford, sub_fc, region_stats=region_stats,
                         commerce=commerce, migration=migration,

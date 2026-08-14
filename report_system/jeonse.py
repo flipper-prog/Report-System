@@ -35,6 +35,19 @@ RATIO_WEAK = 55.0
 #: 전세가율 추세 판정 기준(%p)
 TREND_BAND = 2.0
 
+#: 계층(단지 × 면적대) 매칭 기준.
+#:
+#: 전세와 매매를 각각 풀링한 뒤 중위끼리 나누면 **두 표본의 구성 차이가 그대로
+#: 비율에 들어간다**. 전세는 소형·저가 단지에서, 매매는 대형·고가 단지에서 더
+#: 많이 나오는 것이 흔한 패턴이고, 전세가율은 소형일수록 높으므로 풀링 비율이
+#: 실제보다 높게 나온다 — 즉 하방 완충을 실제보다 두텁게 보고한다.
+#: 그래서 같은 단지·같은 면적대끼리 짝지어 비율을 내고, 그 비율들을 합친다.
+AREA_BUCKET_M2 = 10.0
+#: 한 계층이 성립하려면 전세·매매 각각 이만큼은 있어야 한다.
+MIN_STRATUM = 3
+#: 짝지어진 표본이 전체의 이 비율에 못 미치면 계층화 결과를 대표값으로 쓰지 않는다.
+MIN_PAIRED_SHARE = 0.30
+
 
 @dataclass
 class JeonseResult:
@@ -53,6 +66,11 @@ class JeonseResult:
     ratio_window_months: int = 12
     n_ratio_jeonse: int = 0
     n_ratio_sale: int = 0
+    #: 단지×면적대 짝짓기로 산출했는지. False면 풀링(구성 차이 위험 있음).
+    paired: bool = False
+    #: 계층 합산 가중치가 현장 타입 구성이었는지 (아니면 표본 수)
+    weighted_by_subject: bool = False
+    strata: list["Stratum"] = field(default_factory=list)
     limitations: list[str] = field(default_factory=list)
 
     # ── 파생 ────────────────────────────────────────────────────────────────
@@ -125,6 +143,112 @@ def _median_ppsm(rents: list[RentRecord]) -> Optional[float]:
     return median(vals) if vals else None
 
 
+def _stratum(complex_id: str, area_m2: float) -> tuple[str, int]:
+    return (complex_id, int(area_m2 // AREA_BUCKET_M2))
+
+
+def _weighted_median(pairs: list[tuple[float, float]]) -> float:
+    """(값, 가중치)의 가중 중위값.
+
+    오름차순으로 누적하다 절반을 **넘거나 같아지는** 지점의 값을 취하므로,
+    가중치가 정확히 반반으로 갈리면 낮은 쪽이 선택된다. 전세가율은 하방 완충
+    두께를 재는 지표이므로, 동점에서 보수적인(얇은) 쪽을 택하는 것이 맞다.
+    """
+    ordered = sorted(pairs)
+    total = sum(w for _, w in ordered)
+    acc = 0.0
+    for v, w in ordered:
+        acc += w
+        if acc * 2 >= total:
+            return v
+    return ordered[-1][0]
+
+
+@dataclass
+class Stratum:
+    """단지 × 면적대 하나에서 짝지어 낸 전세가율."""
+    complex_id: str
+    area_lo: float
+    n_jeonse: int
+    n_sale: int
+    ratio_pct: float
+
+    @property
+    def label(self) -> str:
+        return (f"{self.complex_id} {self.area_lo:.0f}~"
+                f"{self.area_lo + AREA_BUCKET_M2:.0f}㎡")
+
+
+def _paired_ratio(jeonse: list[RentRecord], sales: list[Transaction],
+                  area_weights: "dict[int, int] | None" = None):
+    """같은 단지·면적대끼리 짝지어 전세가율을 산출한다.
+
+    area_weights: 면적대(버킷) → 현장 세대수. 지표가 답해야 할 질문은
+    "**이 현장의** 분양가가 밀릴 때 전세가 어디까지 받쳐 주는가"이므로,
+    계층을 합칠 때는 비교 표본의 구성이 아니라 **현장의 타입 구성**으로
+    가중하는 것이 맞다. 미지정이거나 현장 면적대와 겹치는 계층이 없으면
+    짝지어진 표본 수로 가중한다.
+
+    반환: (ratio_pct, jeonse_ppsm, sale_ppsm, n_j, n_s, strata, by_subject)
+    또는 None. None 이면 짝지을 계층이 없다는 뜻이고, 호출부가 풀링으로 되돌린다.
+    """
+    j_by: dict[tuple, list[RentRecord]] = {}
+    s_by: dict[tuple, list[Transaction]] = {}
+    for r in jeonse:
+        if r.deposit_ppsm > 0:
+            j_by.setdefault(_stratum(r.complex_id, r.area_m2), []).append(r)
+    for t in sales:
+        if t.area_m2 > 0:
+            s_by.setdefault(_stratum(t.complex_id, t.area_m2), []).append(t)
+
+    strata: list[Stratum] = []
+    matched_j: list[RentRecord] = []
+    matched_s: list[Transaction] = []
+    for key in sorted(j_by.keys() & s_by.keys()):
+        js, ss = j_by[key], s_by[key]
+        if len(js) < MIN_STRATUM or len(ss) < MIN_STRATUM:
+            continue
+        jp = _median_ppsm(js)
+        sp = median([t.price / t.area_m2 for t in ss])
+        if not jp or not sp:
+            continue
+        strata.append(Stratum(key[0], key[1] * AREA_BUCKET_M2,
+                              len(js), len(ss), jp / sp * 100))
+        matched_j += js
+        matched_s += ss
+    if not strata:
+        return None
+
+    by_subject = False
+    weights = [(s.ratio_pct, float(min(s.n_jeonse, s.n_sale))) for s in strata]
+    if area_weights:
+        subj = [(s.ratio_pct,
+                 float(area_weights.get(int(s.area_lo // AREA_BUCKET_M2), 0)))
+                for s in strata]
+        if sum(w for _, w in subj) > 0:
+            weights = [(v, w) for v, w in subj if w > 0]
+            by_subject = True
+
+    ratio = _weighted_median(weights)
+    return (ratio, _median_ppsm(matched_j),
+            median([t.price / t.area_m2 for t in matched_s]),
+            len(matched_j), len(matched_s), strata, by_subject)
+
+
+def _mix_gap(jeonse: list[RentRecord], sales: list[Transaction]) -> str:
+    """풀링으로 되돌릴 때, 두 표본의 구성이 얼마나 다른지를 밝힌다."""
+    if not jeonse or not sales:
+        return ""
+    ja = median([r.area_m2 for r in jeonse])
+    sa = median([t.area_m2 for t in sales])
+    parts = [f"전세 표본 중위 {ja:.0f}㎡ vs 매매 표본 중위 {sa:.0f}㎡"]
+    jc, sc = {r.complex_id for r in jeonse}, {t.complex_id for t in sales}
+    if jc != sc:
+        parts.append(f"단지 구성 상이(전세 {len(jc)}곳 · 매매 {len(sc)}곳, "
+                     f"공통 {len(jc & sc)}곳)")
+    return " · ".join(parts)
+
+
 def _conversion_rate(monthlies: list[RentRecord],
                      jeonse_ppsm: float) -> Optional[float]:
     """전월세전환율(%) = 월세×12 / (전세 환산 보증금 − 실제 보증금) × 100.
@@ -143,7 +267,8 @@ def _conversion_rate(monthlies: list[RentRecord],
 
 
 def analyze(rents: list[RentRecord], sale_txs: list[Transaction],
-            asof: date, window_months: int = 12) -> JeonseResult:
+            asof: date, window_months: int = 12,
+            subject_types: "list[tuple[float, int]] | None" = None) -> JeonseResult:
     """정제된 매매 거래와 전월세 거래로 전세 기반 지표를 산출한다.
 
     sale_txs 는 정제(transactions.clean)를 통과한 거래를 넘긴다 — 전세가율의
@@ -189,24 +314,53 @@ def analyze(rents: list[RentRecord], sale_txs: list[Transaction],
     min_half = max(2, MIN_SAMPLES // 2)
 
     full_jeonse_ppsm = _median_ppsm(jeonse)
+
+    # 현장 타입 구성 → 면적대별 세대수. 계층을 합칠 때의 가중치가 된다.
+    area_weights: dict[int, int] = {}
+    for area, units in (subject_types or []):
+        if area > 0 and units > 0:
+            b = int(area // AREA_BUCKET_M2)
+            area_weights[b] = area_weights.get(b, 0) + units
+
+    def _ratio_of(js: list[RentRecord], ss: list[Transaction]):
+        """계층 매칭을 우선하고, 성립하지 않으면 풀링으로 되돌린다."""
+        paired = _paired_ratio(js, ss, area_weights)
+        if paired is not None:
+            ratio, jp, sp, nj, ns, strata, by_subject = paired
+            if nj >= len(js) * MIN_PAIRED_SHARE:
+                return ratio, jp, sp, nj, ns, strata, True, by_subject
+        jp = _median_ppsm(js)
+        sp = median([t.price / t.area_m2 for t in ss]) if ss else None
+        ratio = (jp / sp * 100) if (jp and sp) else None
+        return ratio, jp, sp, len(js), len(ss), [], False, False
+
     if (len(recent_j) >= min_half and len(prev_j) >= min_half
             and len(recent_s) >= min_half and len(prev_s) >= min_half):
-        res.jeonse_ppsm = _median_ppsm(recent_j)
-        res.sale_ppsm = median([t.price / t.area_m2 for t in recent_s])
+        cur = _ratio_of(recent_j, recent_s)
         res.ratio_window_months = half
-        res.n_ratio_jeonse, res.n_ratio_sale = len(recent_j), len(recent_s)
-        pj, ps = _median_ppsm(prev_j), median([t.price / t.area_m2 for t in prev_s])
-        if pj and ps:
-            res.ratio_prev_pct = pj / ps * 100
+        prev = _ratio_of(prev_j, prev_s)
+        res.ratio_prev_pct = prev[0]
     else:
-        res.jeonse_ppsm = full_jeonse_ppsm
-        res.sale_ppsm = median([t.price / t.area_m2 for t in sales])
+        cur = _ratio_of(jeonse, sales)
         res.ratio_window_months = window_months
-        res.n_ratio_jeonse, res.n_ratio_sale = len(jeonse), len(sales)
         res.limitations.append("전·후반 표본 부족 — 전세가율 추세는 산출하지 않음")
 
-    if res.jeonse_ppsm and res.sale_ppsm:
-        res.ratio_pct = res.jeonse_ppsm / res.sale_ppsm * 100
+    (res.ratio_pct, res.jeonse_ppsm, res.sale_ppsm,
+     res.n_ratio_jeonse, res.n_ratio_sale, res.strata,
+     res.paired, res.weighted_by_subject) = cur
+
+    if res.paired:
+        how = ("현장 타입 구성으로 가중" if res.weighted_by_subject
+               else "짝지어진 표본 수로 가중 — 현장 면적대와 겹치는 계층 없음")
+        res.limitations.append(
+            f"전세가율은 단지×면적대 {len(res.strata)}개 계층에서 짝지어 산출 "
+            f"(구성 차이 제거, {how})")
+    else:
+        gap = _mix_gap(jeonse, sales)
+        res.limitations.append(
+            "짝지을 계층(단지×면적대, 각 3건 이상) 부족 — 전세·매매 표본을 각각 "
+            "풀링해 산출. 두 표본의 구성이 다르면 비율에 그 차이가 섞인다"
+            + (f" ({gap})" if gap else "") + " [LIMITATION]")
 
     if full_jeonse_ppsm and monthly:
         res.conversion_rate_pct = _conversion_rate(monthly, full_jeonse_ppsm)

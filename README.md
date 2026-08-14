@@ -24,7 +24,7 @@ python3 -m report_system verify     # 장부 전수 감사 — 봉인 해시 재
 python3 -m report_system backtest   # 백테스트 단독 실행 → out/backtest.md
 python3 -m report_system calibrate --config my_site.json   # 조정계수 교정 → out/calibration.md
 python3 -m report_system history --site SAMPLE-001   # 회차별 판정·지표 변화
-python3 tests/run_all.py            # 전체 테스트 (527건)
+python3 tests/run_all.py            # 전체 테스트 (548건)
 ```
 
 ### 실데이터 준비 절차
@@ -178,7 +178,7 @@ python3 -m report_system verify                           # ⑤ 장부 감사
 | 비교는 양쪽 같은 기준으로 | 총취득원가 환산(`acquisition.py`) — 현장에만 취득 부대비용을 얹으면 그만큼 비싸 보여 판정 ①이 '밴드 상단'으로 계통적으로 기운다. 세율도 가액 구간별 누진·전용면적 기준을 반영하며, 적용률을 리포트에 표기 | 5.5 총취득원가 |
 | 현장이 분석을 교정한다 | 거절 사유 vs 판정 정합성, 방문객 거주지 vs 인구이동 유입 출발지(`feedback.py`) | 5.11.3 (P1-3) |
 | 접근성은 주장이 아니라 좌표로 말한다 | 최근접역 도보 10분 이내에서만 문장 생성(`transit.py`·`pipeline.py`) | 5.9 광고 표현 통제 |
-| 가격의 하방은 전세가 말한다 | 전세가율·전월세전환율(`jeonse.py`) — 갱신 계약 제외, 표본 미달 시 미산출 | 5.4 가격 검증 |
+| 가격의 하방은 전세가 말한다 | 전세가율·전월세전환율(`jeonse.py`) — 갱신 계약 제외, 표본 미달 시 미산출. **단지×면적대 짝짓기**로 산출하고 현장 타입 구성으로 가중 — 전세·매매를 각각 풀링하면 두 표본의 구성 차이가 비율에 섞여 하방 완충을 실제보다 두텁게 보고한다 | 5.4 가격 검증 |
 | 단일 AI 점수로 합치지 않는다 | 4개 독립 판정(`verdicts.py`) | 5.8 |
 | 예측은 사후 검증된다 | 시점 분리 백테스트(`backtest.py`) — 운영과 동일 함수 호출. cutoff 시점에 **아직 신고되지 않았을 거래는 학습에서 제외**하여 실시간 운영보다 좋게 나오는 낙관 편향을 제거 | 5.4.2·E.2 |
 | 필터가 시점과 상관되면 안 된다 | 동시기 기준 정제(`transactions.py`) — 전 기간 중위값을 기준으로 쓰면 상승장에서는 최근 특수거래를 놓치고, 하락장에서는 정상적인 최근 저가 거래를 통째로 지워 **하락 신호를 분석이 스스로 삭제**한다. 각 거래는 같은 시기의 같은 단지·면적대와만 비교 | 5.4.2 데이터 품질 |
@@ -200,7 +200,7 @@ report_system/             파이프라인 패키지 (stdlib only)
   geo.py                   좌표 유틸 (직선거리·보행 보정 도보 시간)
   calibrate.py             조정계수 교정 (헤도닉 회귀 + 홀드아웃 검증, stdlib OLS)
   live.py                  설정 JSON + 커넥터 → 리포트
-tests/                     unittest 스위트 (527건) — run_all.py 로 일괄 실행
+tests/                     unittest 스위트 (548건) — run_all.py 로 일괄 실행
 examples/site_config.json  실데이터 실행 설정 예시
 proposal/                  사업 제안서 (md + docx 납품본 + 변환 스크립트)
 docs/                      설계검토보고서 (P0/P1/P2 진단)

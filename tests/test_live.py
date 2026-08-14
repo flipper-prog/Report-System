@@ -224,8 +224,15 @@ class TestLivePipeline(unittest.TestCase):
         self.assertIsNotNone(j.ratio_pct)
         self.assertGreater(j.n_jeonse, 0)
         self.assertGreater(j.n_renewal_excluded, 0)      # 갱신 계약 분리 확인
-        self.assertAlmostEqual(j.jeonse_ppsm / j.sale_ppsm * 100, j.ratio_pct,
-                               places=6)
+        if j.paired:
+            # 계층 가중 중위이므로 단순 나눗셈으로 검산되지 않는다.
+            # 대신 어느 계층의 비율보다 밖으로 나가서는 안 된다.
+            rs = [st.ratio_pct for st in j.strata]
+            self.assertGreaterEqual(j.ratio_pct, min(rs))
+            self.assertLessEqual(j.ratio_pct, max(rs))
+        else:
+            self.assertAlmostEqual(j.jeonse_ppsm / j.sale_ppsm * 100,
+                                   j.ratio_pct, places=6)
         v1 = next(v for v in result.inputs.verdicts if v.name.startswith("①"))
         self.assertTrue(any("전세가율" in r for r in v1.rationale))
 

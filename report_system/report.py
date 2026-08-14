@@ -226,15 +226,17 @@ def generate_markdown(x: ReportInputs) -> str:
         add("| 항목 | 값 | 판정 |")
         add("|------|-----|------|")
         if j.ratio_pct is not None:
+            basis = ("단지×면적대 짝짓기" if j.paired else "표본 풀링")
             add(f"| 전세가율 (최근 {j.ratio_window_months}개월) | {j.ratio_pct:.1f}% | "
-                f"{j.label} |")
+                f"{j.label} · {basis} |")
             if j.ratio_prev_pct is not None:
                 add(f"| 직전 {j.ratio_window_months}개월 전세가율 | "
                     f"{j.ratio_prev_pct:.1f}% ({j.ratio_delta_pp:+.1f}%p) | "
                     f"{j.trend_label} |")
-            add(f"| 전세 ㎡단가 (중위) | {_fmt_won(j.jeonse_ppsm)}/㎡ | "
+            ref = "짝지어진 표본 중위" if j.paired else "표본 중위"
+            add(f"| 전세 ㎡단가 ({ref}) | {_fmt_won(j.jeonse_ppsm)}/㎡ | "
                 f"전세 {j.n_ratio_jeonse}건 기준 |")
-            add(f"| 매매 ㎡단가 (중위) | {_fmt_won(j.sale_ppsm)}/㎡ | "
+            add(f"| 매매 ㎡단가 ({ref}) | {_fmt_won(j.sale_ppsm)}/㎡ | "
                 f"매매 {j.n_ratio_sale}건 기준 |")
             if x.positions:
                 subj = sorted(p.subject_ppsm for p in x.positions)[len(x.positions) // 2]
@@ -249,6 +251,23 @@ def generate_markdown(x: ReportInputs) -> str:
         add(f"| 전체 수집 표본 | 전세 {j.n_jeonse}건 · 월세 {j.n_monthly}건 · "
             f"매매 {j.n_sale}건 (최근 {j.window_months}개월) | — |")
         add("")
+        if j.strata:
+            add("**계층별 전세가율** — 같은 단지·같은 면적대끼리 짝지어 산출한 "
+                "값입니다. 전세와 매매를 각각 풀링해 중위끼리 나누면 두 표본의 "
+                "구성 차이(면적·단지 분포)가 그대로 비율에 섞이기 때문입니다.")
+            add("")
+            add("| 단지·면적대 | 전세 | 매매 | 전세가율 |")
+            add("|-------------|------|------|----------|")
+            for st in j.strata:
+                add(f"| {st.label} | {st.n_jeonse}건 | {st.n_sale}건 | "
+                    f"{st.ratio_pct:.1f}% |")
+            add("")
+            add(f"*대표값 {j.ratio_pct:.1f}%는 위 계층들의 가중 중위입니다"
+                + (" (현장 타입 구성으로 가중)." if j.weighted_by_subject
+                   else " (짝지어진 표본 수로 가중).")
+                + " 위 ㎡단가는 짝지어진 표본의 중위로, 대표값의 분자·분모가 "
+                  "아니므로 나눠서 검산되지 않습니다.*")
+            add("")
         for lim in j.limitations:
             add(f"- {lim}")
         add("")
