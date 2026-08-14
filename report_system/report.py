@@ -162,6 +162,12 @@ def generate_markdown(x: ReportInputs) -> str:
     for k, v in x.clean.summary.items():
         add(f"| {k} | {v} |")
     add("")
+    if x.clean.basis_note:
+        add(f"*{x.clean.basis_note}. 이상치·특수거래 판정은 **같은 시기의 같은 "
+            "단지·면적대** 거래와 비교합니다 — 전 기간 중위값을 기준으로 쓰면 "
+            "상승장에서는 최근의 특수거래를 놓치고, 하락장에서는 정상적인 최근 "
+            "저가 거래를 통째로 지워 하락 신호를 없앱니다.*")
+        add("")
 
     # 3-2. 신고지연 보정
     if x.lag is not None:
