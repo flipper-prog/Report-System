@@ -188,10 +188,20 @@ def generate_markdown(x: ReportInputs) -> str:
         if b.note:
             add(f"- {b.type_name}: {b.note}")
     add("")
-    add("| 타입 | 총취득원가 기준 ㎡당 | 판정 |")
-    add("|------|---------------------|------|")
+    add("| 타입 | 총취득원가 기준 ㎡당 | 적용 부대비용률 | 판정 |")
+    add("|------|---------------------|-----------------|------|")
+    from .acquisition import RATE_NOTE, tax_rate
+    by_type = {t.name: t for t in x.site.types}
     for p in x.positions:
-        add(f"| {p.type_name} | {_fmt_won(p.subject_ppsm)} | {p.label} |")
+        t = by_type.get(p.type_name)
+        rate = (tax_rate(t.base_price + t.option_cost, t.area_m2)
+                if t is not None else None)
+        add(f"| {p.type_name} | {_fmt_won(p.subject_ppsm)} | "
+            f"{f'{rate:.2%}' if rate is not None else '-'} | {p.label} |")
+    add("")
+    add(f"*비교 밴드의 실거래도 **같은 규칙으로** 총취득원가로 환산했습니다 — "
+        f"비교단지를 사는 사람도 부대비용을 부담하므로, 한쪽에만 얹으면 현장이 "
+        f"실제보다 비싸 보입니다. 적용 기준: {RATE_NOTE} [LIMITATION]*")
     add("")
 
     # 4-2. 전세 기반 하방 점검

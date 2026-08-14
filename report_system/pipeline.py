@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import date
 from statistics import median  # noqa: F401  (앵커·가격갭 계산에 사용)
 
+from .acquisition import RATE_NOTE, total_ppsm
 from .affordability import simulate
 from .alerts import Alert, scan_catalyst, scan_market
 from .backtest import (BacktestReport, backtest_price_bands,
@@ -121,7 +122,10 @@ def run(
     afford = [simulate(t, incomes) for t in site.types]
 
     # 5) 청약 전망 → 장부 봉인 (P0-1/P0-3)
-    market_ppsm = median(t.price / t.area_m2 for t in cr.kept)
+    # 가격 갭도 같은 기준끼리 비교한다 — 현장만 총취득원가로 재고 시장은
+    # 신고가 그대로 쓰면 갭이 부대비용만큼 부풀고, 그 갭이 청약 전망의 매칭
+    # 조건으로 그대로 들어간다.
+    market_ppsm = median(total_ppsm(t.price, t.area_m2) for t in cr.kept)
     subj_ppsm = median(total_acquisition_cost(t) / t.area_m2 for t in site.types)
     gap_pct = (subj_ppsm - market_ppsm) / market_ppsm * 100
     concurrent = int(probability_adjusted(supply_items, window_months=12).adjusted_units)
@@ -355,7 +359,8 @@ def _build_evidence(*, provenance, cr, bands, anchor, coef, jeonse, afford,
                ClaimGrade.CALCULATION, sale_src,
                n=sum(b.n for b in bands if b.level == "타입"),
                limitations=([] if not coef.source.startswith("초기값")
-                            else ["조정계수 미교정 — `calibrate` 실행 전 예시값"]))
+                            else ["조정계수 미교정 — `calibrate` 실행 전 예시값"])
+               + [f"현장·비교 거래 모두 총취득원가로 환산 — {RATE_NOTE}"])
     else:
         ev.add_missing("품질조정 앵커", "비교 표본 부족으로 밴드 미산출",
                        "pricing.quality_adjusted_bands")

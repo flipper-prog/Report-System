@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import date
 
+from .acquisition import HEAVY_RATE, RATE_LOW
 from .affordability import EQUITY_INCOME_MULTIPLE, simulate
 from .catalyst import STAGE_FEASIBILITY, assess
 from .liquidity import analyze as analyze_liquidity
@@ -53,6 +54,12 @@ REALIZATION_DELTA = 0.20
 STRICT_TURNOVER = 9.0
 #: 촉매 실현 가능성 가감폭(절대).
 FEASIBILITY_DELTA = 0.10
+
+#: 취득 부대비용 전제 — 기본은 1주택 유상거래다. 매수층이 다주택자로 기울면
+#: 세율이 크게 달라지므로, 그 전제가 판정 ①을 좌우하는지 확인한다.
+#: (양쪽에 같은 세율을 적용하므로 뒤집힌다면 세율 자체가 아니라 구간 누진의
+#:  비선형성이 원인이다 — 그 사실을 아는 것이 검사의 목적이다)
+HEAVY_TAX_BASE = HEAVY_RATE
 
 V1 = "① 현재 가격 위치"
 V2 = "② 수요 지속성"
@@ -244,6 +251,15 @@ def analyze(
             v = price_verdict(market_positions(site, bands), jeonse=jeonse)
             _record(rep.checks, b1, v, "시점수정률",
                     f"{coef.time_per_year:+.3f} → {c.time_per_year:+.3f} /년")
+        for tax_label, tb in (("다주택 중과", HEAVY_TAX_BASE),
+                              ("전 구간 최저세율", RATE_LOW)):
+            bands = quality_adjusted_bands(site, comps, txs, asof,
+                                           profile=profile, coef=coef,
+                                           tax_base=tb)
+            v = price_verdict(market_positions(site, bands, tax_base=tb),
+                              jeonse=jeonse)
+            _record(rep.checks, b1, v, "취득 부대비용 전제",
+                    f"1주택 누진 → {tax_label}({tb:.0%} 기본세율, 양쪽 동일 적용)")
     elif b1 is not None:
         rep.skipped.append(("품질조정 계수", "비교 거래·비교단지 부족으로 밴드 재계산 불가"))
 

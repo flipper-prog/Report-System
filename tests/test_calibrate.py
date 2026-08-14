@@ -234,7 +234,10 @@ class TestCoefficientPlumbing(unittest.TestCase):
         tx = Transaction("C", ASOF, 84.9, 12, 849_000_000)
         v = adjusted_ppsm(tx, comp, ASOF, (1, 25),
                           Coefficients(age_per_year=0.05, age_cap=0.20))
-        self.assertAlmostEqual(v, 10_000_000 * math.exp(0.20), delta=1_000)
+        # 비교 거래도 총취득원가 기준으로 환산된 뒤 조정된다 (acquisition.py)
+        from report_system.acquisition import total_ppsm
+        self.assertAlmostEqual(v, total_ppsm(849_000_000, 84.9) * math.exp(0.20),
+                               delta=1_000)
 
     def test_age_measured_at_trade_date_not_asof(self):
         """같은 단지의 거래는 언제 체결됐든 조정 후 같은 값이 되어야 한다.

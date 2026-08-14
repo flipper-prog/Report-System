@@ -13,7 +13,9 @@ from datetime import date
 from statistics import quantiles
 from typing import Optional
 
-from .models import Comparable, Site, Transaction, TypeSpec, total_acquisition_cost
+from .acquisition import total_ppsm
+from .models import (Comparable, Site, Transaction, TypeSpec,
+                     total_acquisition_cost)
 
 MIN_SAMPLES_BAND = 8          # 구간별 최소 표본 (P1-5)
 AGE_ADJ_PER_YEAR = 0.010      # 연식 1년당 조정률(구축일수록 상향 조정)
@@ -103,8 +105,12 @@ def _floor_band(t: TypeSpec, floor: int) -> str:
 
 def _adjust_ppsm(tx: Transaction, comp: Comparable, asof: date,
                  subject_floors: tuple[int, int],
-                 coef: Coefficients = DEFAULT_COEF) -> float:
-    ppsm = tx.price / tx.area_m2
+                 coef: Coefficients = DEFAULT_COEF,
+                 tax_base: "float | None" = None) -> float:
+    # 비교 거래도 현장과 같은 '총취득원가' 기준으로 환산한다. 비교단지를 사는
+    # 사람도 취득세를 내므로, 한쪽에만 세금을 얹으면 현장이 실제보다 비싸
+    # 보이고 판정 ①이 '밴드 상단' 쪽으로 계통적으로 기운다.
+    ppsm = total_ppsm(tx.price, tx.area_m2, tax_base)
     # 시점수정: 과거 거래를 기준일(asof) 시세 수준으로 환산한다.
     # 감정평가의 시점수정과 같은 역할이며, 계수가 0이면 아무 일도 하지 않는다.
     if coef.time_per_year:
@@ -130,9 +136,10 @@ def _adjust_ppsm(tx: Transaction, comp: Comparable, asof: date,
 
 def adjusted_ppsm(tx: Transaction, comp: Comparable, asof: date,
                   subject_floors: tuple[int, int],
-                  coef: Coefficients = DEFAULT_COEF) -> float:
+                  coef: Coefficients = DEFAULT_COEF,
+                  tax_base: "float | None" = None) -> float:
     """공개 래퍼 — 백테스트가 운영과 동일한 조정식을 사용하도록 노출."""
-    return _adjust_ppsm(tx, comp, asof, subject_floors, coef)
+    return _adjust_ppsm(tx, comp, asof, subject_floors, coef, tax_base)
 
 
 def _quantile3(vals: list[float]) -> tuple[float, float, float]:
@@ -149,6 +156,7 @@ def quality_adjusted_bands(
     asof: date,
     profile=None,
     coef: Coefficients = DEFAULT_COEF,
+    tax_base: "float | None" = None,
 ) -> list[Band]:
     """타입별(가능하면 층구간별) 품질조정 가격 밴드.
 
@@ -169,7 +177,7 @@ def quality_adjusted_bands(
                 continue
             if not (t.area_m2 * (1 - tol) <= tx.area_m2 <= t.area_m2 * (1 + tol)):
                 continue
-            adj = _adjust_ppsm(tx, comp, asof, t.floors, coef)
+            adj = _adjust_ppsm(tx, comp, asof, t.floors, coef, tax_base)
             weight = PRESALE_WEIGHT if comp.is_presale_right else 1
             fb = _floor_band(t, tx.floor)
             samples.extend([(fb, adj)] * weight)
@@ -203,7 +211,8 @@ def quality_adjusted_bands(
     return bands
 
 
-def market_positions(site: Site, bands: list[Band]) -> list[MarketPosition]:
+def market_positions(site: Site, bands: list[Band],
+                     tax_base: "float | None" = None) -> list[MarketPosition]:
     """총취득원가 기준 ㎡당 가격의 밴드 내 위치 판정."""
     out: list[MarketPosition] = []
     for t in site.types:
@@ -211,7 +220,7 @@ def market_positions(site: Site, bands: list[Band]) -> list[MarketPosition]:
             (b for b in bands if b.type_name == t.name and b.level == "타입"), None)
         if band is None:
             continue
-        subject_ppsm = total_acquisition_cost(t) / t.area_m2
+        subject_ppsm = total_acquisition_cost(t, tax_base) / t.area_m2
         if subject_ppsm <= band.q25:
             label = "밴드 하단(가격 경쟁력)"
         elif subject_ppsm <= band.q75:

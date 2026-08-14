@@ -58,13 +58,15 @@ class Site:
     product_type: str = "아파트"   # profiles.ProductType 값
 
 
-ACQUISITION_TAX_RATE = 0.033  # 취득세 등 부대비용 간이율(파라미터. 계약 전 확정)
+def total_acquisition_cost(t: TypeSpec, base_rate: "float | None" = None) -> int:
+    """총취득원가 = 분양가 + 옵션 + 취득 부대비용. (제안서 5.5)
 
-
-def total_acquisition_cost(t: TypeSpec) -> int:
-    """총취득원가 = 분양가 + 옵션 + 취득 부대비용(간이). (제안서 5.5)"""
+    부대비용률은 가액 구간별 누진과 전용면적 기준을 반영한다(`acquisition.py`).
+    비교 거래도 **같은 함수로** 환산되어야 비교가 성립한다.
+    """
+    from .acquisition import total_cost   # 순환 참조 방지(acquisition은 모델 비의존)
     base = t.base_price + t.option_cost
-    return int(base * (1 + ACQUISITION_TAX_RATE))
+    return int(total_cost(base, t.area_m2, base_rate))
 
 
 # ── 시장 데이터 ──────────────────────────────────────────────────────────────

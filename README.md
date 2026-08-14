@@ -24,7 +24,7 @@ python3 -m report_system verify     # 장부 전수 감사 — 봉인 해시 재
 python3 -m report_system backtest   # 백테스트 단독 실행 → out/backtest.md
 python3 -m report_system calibrate --config my_site.json   # 조정계수 교정 → out/calibration.md
 python3 -m report_system history --site SAMPLE-001   # 회차별 판정·지표 변화
-python3 tests/run_all.py            # 전체 테스트 (476건)
+python3 tests/run_all.py            # 전체 테스트 (501건)
 ```
 
 ### 실데이터 준비 절차
@@ -134,6 +134,8 @@ python3 -m report_system verify                           # ⑤ 장부 감사
   → lag          신고지연 보정(계약일+30일 기한) — 미완결 월을 추세·회전율에서
                  제외하고 제외 내역을 표기. 백테스트에도 같은 지연 적용
   → quality      데이터 적합성 5축 → A~D (D는 사용 금지)
+  ├→ acquisition 총취득원가 환산 — 현장·비교 거래 **양쪽**에 같은 규칙 적용
+  │               (취득세 구간 누진 + 지방교육세 + 전용 85㎡ 초과 농특세)
   ├→ pricing     품질조정 가격 밴드(타입·층구간, 분양권 우선 비교군, 표본 미달 시 롤업)
   ├→ jeonse      전세가율·전월세전환율(하방 완충 두께) → 판정 ① 보강
   ├→ affordability 실부담 시뮬레이터(LTV·DSR·금리 시나리오, 구매 가능 가구 비율)
@@ -171,6 +173,7 @@ python3 -m report_system verify                           # ⑤ 장부 감사
 | 표본이 지지하지 않는 수치는 내지 않는다 | 밴드 롤업(`pricing.py`), 청약 정성 전환(`subscription.py`), 실부담 미산출(`affordability.py` — 모름을 0%로 적지 않음), 치명 결함 중단(`validation.py`) | 5.4.5·5.10 (P1-5) |
 | 검증되지 않은 문장은 나가지 않는다 | 린트 게이트(`claims.py`) — FORECAST는 '사용 가능' 불가, 금지 표현 차단 | 5.9·14.5 |
 | 신축 비교군은 분양권 우선 | 분양권 거래 가중(`pricing.py`) | P1-1 |
+| 비교는 양쪽 같은 기준으로 | 총취득원가 환산(`acquisition.py`) — 현장에만 취득 부대비용을 얹으면 그만큼 비싸 보여 판정 ①이 '밴드 상단'으로 계통적으로 기운다. 세율도 가액 구간별 누진·전용면적 기준을 반영하며, 적용률을 리포트에 표기 | 5.5 총취득원가 |
 | 현장이 분석을 교정한다 | 거절 사유 vs 판정 정합성, 방문객 거주지 vs 인구이동 유입 출발지(`feedback.py`) | 5.11.3 (P1-3) |
 | 접근성은 주장이 아니라 좌표로 말한다 | 최근접역 도보 10분 이내에서만 문장 생성(`transit.py`·`pipeline.py`) | 5.9 광고 표현 통제 |
 | 가격의 하방은 전세가 말한다 | 전세가율·전월세전환율(`jeonse.py`) — 갱신 계약 제외, 표본 미달 시 미산출 | 5.4 가격 검증 |
@@ -194,7 +197,7 @@ report_system/             파이프라인 패키지 (stdlib only)
   geo.py                   좌표 유틸 (직선거리·보행 보정 도보 시간)
   calibrate.py             조정계수 교정 (헤도닉 회귀 + 홀드아웃 검증, stdlib OLS)
   live.py                  설정 JSON + 커넥터 → 리포트
-tests/                     unittest 스위트 (476건) — run_all.py 로 일괄 실행
+tests/                     unittest 스위트 (501건) — run_all.py 로 일괄 실행
 examples/site_config.json  실데이터 실행 설정 예시
 proposal/                  사업 제안서 (md + docx 납품본 + 변환 스크립트)
 docs/                      설계검토보고서 (P0/P1/P2 진단)
